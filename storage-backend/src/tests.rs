@@ -44,8 +44,8 @@ mod tests {
             "v1",
         );
 
-        // Put config
-        backend.put(&key, &data).await.unwrap();
+        // Put config (first creation, no expected version)
+        backend.put(&key, &data, None).await.unwrap();
 
         // Get config
         let retrieved = backend.get(&key).await.unwrap();
@@ -61,15 +61,15 @@ mod tests {
 
         // Store v1
         let data_v1 = create_test_data(serde_json::json!({"version": "1.0.0", "value": 1}), "v1");
-        backend.put(&key, &data_v1).await.unwrap();
+        backend.put(&key, &data_v1, None).await.unwrap();
 
         // Store v2
         let data_v2 = create_test_data(serde_json::json!({"version": "2.0.0", "value": 2}), "v2");
-        backend.put(&key, &data_v2).await.unwrap();
+        backend.put(&key, &data_v2, Some("v1")).await.unwrap();
 
         // Store v3
         let data_v3 = create_test_data(serde_json::json!({"version": "3.0.0", "value": 3}), "v3");
-        backend.put(&key, &data_v3).await.unwrap();
+        backend.put(&key, &data_v3, Some("v2")).await.unwrap();
 
         // Current version should be v3
         let current = backend.get(&key).await.unwrap();
@@ -101,7 +101,7 @@ mod tests {
 
         // Store config
         let data = create_test_data(serde_json::json!({"test": true}), "v1");
-        backend.put(&key, &data).await.unwrap();
+        backend.put(&key, &data, None).await.unwrap();
 
         // Should exist now
         assert!(backend.exists(&key).await.unwrap());
@@ -113,9 +113,14 @@ mod tests {
         let key = create_test_key("delete-test");
 
         // Store config with multiple versions
+        let mut last_version = None;
         for i in 1..=3 {
             let data = create_test_data(serde_json::json!({"iteration": i}), &format!("v{}", i));
-            backend.put(&key, &data).await.unwrap();
+            backend
+                .put(&key, &data, last_version.as_deref())
+                .await
+                .unwrap();
+            last_version = Some(format!("v{}", i));
         }
 
         // Verify it exists
@@ -139,13 +144,13 @@ mod tests {
         for i in 1..=3 {
             let key = ConfigKey::new("app1", "prod", &format!("config{}", i));
             let data = create_test_data(serde_json::json!({"id": i}), "v1");
-            backend.put(&key, &data).await.unwrap();
+            backend.put(&key, &data, None).await.unwrap();
         }
 
         for i in 1..=2 {
             let key = ConfigKey::new("app2", "staging", &format!("config{}", i));
             let data = create_test_data(serde_json::json!({"id": i}), "v1");
-            backend.put(&key, &data).await.unwrap();
+            backend.put(&key, &data, None).await.unwrap();
         }
 
         // List all
@@ -172,7 +177,7 @@ mod tests {
             version: "v1".to_string(),
         };
 
-        backend.put(&key, &data).await.unwrap();
+        backend.put(&key, &data, None).await.unwrap();
 
         // Retrieve and verify
         let retrieved = backend.get(&key).await.unwrap();
@@ -197,7 +202,7 @@ mod tests {
 
         // Store v1
         let data = create_test_data(serde_json::json!({"test": 1}), "v1");
-        backend.put(&key, &data).await.unwrap();
+        backend.put(&key, &data, None).await.unwrap();
 
         // Try to get non-existent version
         let result = backend.get_version(&key, "v99").await;
@@ -206,5 +211,38 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("Version v99 not found"));
+    }
+
+    #[tokio::test]
+    async fn test_version_conflict() {
+        let (backend, _temp) = setup_test_backend().await;
+        let key = create_test_key("conflict-test");
+
+        // Create initial version
+        let data_v1 = create_test_data(serde_json::json!({"value": 1}), "v1");
+        backend.put(&key, &data_v1, None).await.unwrap();
+
+        // Try to create again (should fail - already exists)
+        let data_v2 = create_test_data(serde_json::json!({"value": 2}), "v2");
+        let result = backend.put(&key, &data_v2, None).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Version conflict"));
+        assert!(err.contains("expected none, but found v1"));
+
+        // Try to update with wrong version (should fail)
+        let result = backend.put(&key, &data_v2, Some("v99")).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Version conflict"));
+        assert!(err.contains("expected v99, but found v1"));
+
+        // Update with correct version (should succeed)
+        backend.put(&key, &data_v2, Some("v1")).await.unwrap();
+
+        // Verify update worked
+        let current = backend.get(&key).await.unwrap();
+        assert_eq!(current.version, "v2");
+        assert_eq!(current.content["value"], 2);
     }
 }

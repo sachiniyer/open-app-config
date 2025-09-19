@@ -80,11 +80,58 @@ impl ObjectStoreBackend {
 #[async_trait]
 impl ConfigStorage for ObjectStoreBackend {
     #[instrument(skip(self, data))]
-    async fn put(&self, key: &ConfigKey, data: &ConfigData) -> Result<()> {
-        debug!("Storing config for key: {}", key);
+    async fn put(
+        &self,
+        key: &ConfigKey,
+        data: &ConfigData,
+        expected_version: Option<&str>,
+    ) -> Result<()> {
+        debug!(
+            "Storing config for key: {} with expected version: {:?}",
+            key, expected_version
+        );
 
-        // Read existing metadata or create new
-        let mut metadata = self.read_metadata(key).await?.unwrap_or_else(Metadata::new);
+        // Read existing metadata
+        let existing_metadata = self.read_metadata(key).await?;
+
+        // Check version expectations
+        match (&existing_metadata, expected_version) {
+            (None, None) => {
+                // Good: expecting new config and it doesn't exist
+                debug!("Creating new config");
+            }
+            (Some(m), Some(expected)) if m.current_version == expected => {
+                // Good: versions match
+                debug!("Version matches, updating from {}", expected);
+            }
+            (None, Some(expected)) => {
+                // Conflict: expected a version but config doesn't exist
+                return Err(crate::error::StorageError::VersionConflict {
+                    expected: expected.to_string(),
+                    actual: "none".to_string(),
+                }
+                .into());
+            }
+            (Some(m), None) => {
+                // Conflict: expected no config but it exists
+                return Err(crate::error::StorageError::VersionConflict {
+                    expected: "none".to_string(),
+                    actual: m.current_version.clone(),
+                }
+                .into());
+            }
+            (Some(m), Some(expected)) => {
+                // Conflict: versions don't match
+                return Err(crate::error::StorageError::VersionConflict {
+                    expected: expected.to_string(),
+                    actual: m.current_version.clone(),
+                }
+                .into());
+            }
+        }
+
+        // Create or update metadata
+        let mut metadata = existing_metadata.unwrap_or_else(Metadata::new);
 
         // Generate next version
         let version_num = metadata.next_version_number();

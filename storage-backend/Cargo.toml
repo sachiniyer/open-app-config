@@ -22,6 +22,3 @@ futures = "0.3"
 tokio-test = "0.4"
 tracing-subscriber = { workspace = true }
 tempfile = "3.8"
-
-[[example]]
-name = "local_storage"
