@@ -17,8 +17,8 @@ pub enum StorageError {
     #[error("Validation error: {0}")]
     ValidationError(String),
 
-    #[error("Version conflict: {0}")]
-    VersionConflict(String),
+    #[error("Version conflict: expected {expected}, but found {actual}")]
+    VersionConflict { expected: String, actual: String },
 
     #[error("Storage error: {0}")]
     Other(String),
