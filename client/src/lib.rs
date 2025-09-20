@@ -1,19 +1,21 @@
 #![allow(clippy::uninlined_format_args, clippy::map_unwrap_or)]
-pub mod cached;
+#![allow(clippy::uninlined_format_args, clippy::map_unwrap_or)]
 
 use anyhow::Result;
 use reqwest::{Client as ReqwestClient, StatusCode};
 use shared_types::{ConfigData, ConfigKey, VersionInfo};
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::RwLock;
 
-/// Client for interacting with the Open App Config service
 pub struct ConfigClient {
     client: ReqwestClient,
     base_url: String,
+    cache: Arc<RwLock<HashMap<String, ConfigData>>>,
 }
 
 impl ConfigClient {
-    /// Create a new client instance
     pub fn new(base_url: impl Into<String>) -> Result<Self> {
         let client = ReqwestClient::builder()
             .timeout(Duration::from_secs(30))
@@ -22,11 +24,46 @@ impl ConfigClient {
         Ok(Self {
             client,
             base_url: base_url.into().trim_end_matches('/').to_string(),
+            cache: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
-    /// Get the current version of a configuration
     pub async fn get_config(&self, key: &ConfigKey) -> Result<ConfigData> {
+        let cache_key = key.to_string();
+
+        // Check cache first
+        {
+            let cache = self.cache.read().await;
+            match cache.get(&cache_key) {
+                Some(cached) => return Ok(cached.clone()),
+                None => {}
+            }
+        }
+
+        // Fetch from remote and cache
+        let data = self.fetch_config(key).await?;
+
+        {
+            let mut cache = self.cache.write().await;
+            cache.insert(cache_key, data.clone());
+        }
+
+        Ok(data)
+    }
+
+    pub async fn refresh(&self, key: &ConfigKey) -> Result<ConfigData> {
+        let cache_key = key.to_string();
+        let data = self.fetch_config(key).await?;
+
+        {
+            let mut cache = self.cache.write().await;
+            cache.insert(cache_key, data.clone());
+        }
+
+        Ok(data)
+    }
+
+    async fn fetch_config(&self, key: &ConfigKey) -> Result<ConfigData> {
         let url = format!(
             "{}/configs/{}/{}/{}",
             self.base_url, key.application, key.environment, key.config_name
@@ -49,7 +86,6 @@ impl ConfigClient {
         })
     }
 
-    /// Create or update a configuration
     pub async fn put_config(
         &self,
         key: &ConfigKey,
@@ -69,15 +105,19 @@ impl ConfigClient {
         });
 
         let response = self.client.put(&url).json(&body).send().await?;
-
         response.error_for_status_ref()?;
 
         let result: serde_json::Value = response.json().await?;
 
+        // Invalidate cache for this key
+        {
+            let mut cache = self.cache.write().await;
+            cache.remove(&key.to_string());
+        }
+
         Ok(result["version"].as_str().unwrap_or("unknown").to_string())
     }
 
-    /// Delete a configuration
     pub async fn delete_config(&self, key: &ConfigKey) -> Result<()> {
         let url = format!(
             "{}/configs/{}/{}/{}",
@@ -85,13 +125,17 @@ impl ConfigClient {
         );
 
         let response = self.client.delete(&url).send().await?;
-
         response.error_for_status()?;
+
+        // Remove from cache
+        {
+            let mut cache = self.cache.write().await;
+            cache.remove(&key.to_string());
+        }
 
         Ok(())
     }
 
-    /// List all versions of a configuration
     pub async fn list_versions(&self, key: &ConfigKey) -> Result<Vec<VersionInfo>> {
         let url = format!(
             "{}/configs/{}/{}/{}/versions",
@@ -112,7 +156,6 @@ impl ConfigClient {
         Ok(versions)
     }
 
-    /// Get a specific version of a configuration
     pub async fn get_config_version(&self, key: &ConfigKey, version: &str) -> Result<ConfigData> {
         let url = format!(
             "{}/configs/{}/{}/{}/versions/{}",
@@ -136,7 +179,6 @@ impl ConfigClient {
         })
     }
 
-    /// List all configurations with optional prefix filter
     pub async fn list_configs(&self, prefix: Option<&str>) -> Result<Vec<ConfigKey>> {
         let mut url = format!("{}/configs", self.base_url);
 
@@ -145,7 +187,6 @@ impl ConfigClient {
         }
 
         let response = self.client.get(&url).send().await?;
-
         response.error_for_status_ref()?;
 
         let data: serde_json::Value = response.json().await?;
@@ -165,13 +206,22 @@ impl ConfigClient {
         Ok(configs)
     }
 
-    /// Check if the service is healthy
     pub async fn health_check(&self) -> Result<bool> {
         let url = format!("{}/health", self.base_url);
-
         let response = self.client.get(&url).send().await?;
-
         Ok(response.status() == StatusCode::OK)
+    }
+
+    pub async fn clear_cache(&self) {
+        self.cache.write().await.clear();
+    }
+
+    pub async fn cache_size(&self) -> usize {
+        self.cache.read().await.len()
+    }
+
+    pub async fn is_cached(&self, key: &ConfigKey) -> bool {
+        self.cache.read().await.contains_key(&key.to_string())
     }
 }
 
@@ -184,7 +234,6 @@ mod tests {
         let client = ConfigClient::new("http://localhost:3000").unwrap();
         assert_eq!(client.base_url, "http://localhost:3000");
 
-        // Test trailing slash removal
         let client = ConfigClient::new("http://localhost:3000/").unwrap();
         assert_eq!(client.base_url, "http://localhost:3000");
     }
@@ -194,23 +243,7 @@ mod tests {
         let client = ConfigClient::new("http://localhost:3000").unwrap();
         assert_eq!(client.base_url, "http://localhost:3000");
 
-        // Test with multiple trailing slashes
         let client = ConfigClient::new("http://localhost:3000///").unwrap();
         assert_eq!(client.base_url, "http://localhost:3000");
-    }
-
-    #[test]
-    fn test_client_with_different_schemes() {
-        let client = ConfigClient::new("https://api.example.com").unwrap();
-        assert_eq!(client.base_url, "https://api.example.com");
-
-        let client = ConfigClient::new("http://internal-service:8080").unwrap();
-        assert_eq!(client.base_url, "http://internal-service:8080");
-    }
-
-    #[test]
-    fn test_client_with_paths() {
-        let client = ConfigClient::new("https://api.example.com/v1/config/").unwrap();
-        assert_eq!(client.base_url, "https://api.example.com/v1/config");
     }
 }

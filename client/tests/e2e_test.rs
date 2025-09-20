@@ -87,10 +87,11 @@ async fn test_e2e_basic_workflow() -> Result<()> {
         .await?;
     assert!(!version.is_empty());
 
-    // Get config
+    // Get config (should be cached after first get)
     let retrieved = client.get_config(&key).await?;
     assert_eq!(retrieved.content, content);
     assert_eq!(retrieved.schema, schema);
+    assert!(client.is_cached(&key).await);
 
     // Update config
     let updated_content = json!({
@@ -103,14 +104,72 @@ async fn test_e2e_basic_workflow() -> Result<()> {
         .await?;
     assert!(!version2.is_empty());
 
+    // Cache should be invalidated after put
+    assert!(!client.is_cached(&key).await);
+
+    // Refresh to get latest
+    let refreshed = client.refresh(&key).await?;
+    assert_eq!(refreshed.content, updated_content);
+    assert!(client.is_cached(&key).await);
+
     // List versions
     let versions = client.list_versions(&key).await?;
     assert!(versions.len() >= 2);
 
     // Delete config
     client.delete_config(&key).await?;
+    assert!(!client.is_cached(&key).await);
     assert!(client.get_config(&key).await.is_err());
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_caching_behavior() -> Result<()> {
+    let server = TestServer::start()?;
+    let client = ConfigClient::new(server.url())?;
+
+    for _ in 0..10 {
+        if client.health_check().await.unwrap_or(false) {
+            break;
+        }
+        sleep(Duration::from_millis(500)).await;
+    }
+
+    let key = ConfigKey::new("cachetest", "dev", "config");
+    let content = json!({"cached": true});
+    let schema = json!({"type": "object"});
+
+    // Create config
+    client
+        .put_config(&key, content.clone(), Some(schema.clone()), None)
+        .await?;
+
+    // First get should cache
+    assert_eq!(client.cache_size().await, 0);
+    let data1 = client.get_config(&key).await?;
+    assert_eq!(client.cache_size().await, 1);
+    assert!(client.is_cached(&key).await);
+
+    // Second get should use cache
+    let data2 = client.get_config(&key).await?;
+    assert_eq!(data1.version, data2.version);
+    assert_eq!(client.cache_size().await, 1);
+
+    // Clear cache
+    client.clear_cache().await;
+    assert_eq!(client.cache_size().await, 0);
+
+    // Get again should re-cache
+    client.get_config(&key).await?;
+    assert_eq!(client.cache_size().await, 1);
+
+    // Refresh should update cache
+    let refreshed = client.refresh(&key).await?;
+    assert_eq!(refreshed.content, content);
+    assert_eq!(client.cache_size().await, 1);
+
+    client.delete_config(&key).await?;
     Ok(())
 }
 
