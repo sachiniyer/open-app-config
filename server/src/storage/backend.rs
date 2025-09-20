@@ -8,9 +8,10 @@ use shared_types::{ConfigData, ConfigKey, VersionInfo};
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-use crate::config::StorageConfig;
-use crate::metadata::Metadata;
-use crate::ConfigStorage;
+use super::config::StorageConfig;
+use super::error::StorageError;
+use super::metadata::Metadata;
+use super::traits::ConfigStorage;
 
 pub struct ObjectStoreBackend {
     store: Arc<dyn ObjectStore>,
@@ -91,38 +92,31 @@ impl ConfigStorage for ObjectStoreBackend {
             key, expected_version
         );
 
-        // Read existing metadata
         let existing_metadata = self.read_metadata(key).await?;
 
-        // Check version expectations
         match (&existing_metadata, expected_version) {
             (None, None) => {
-                // Good: expecting new config and it doesn't exist
                 debug!("Creating new config");
             }
             (Some(m), Some(expected)) if m.current_version == expected => {
-                // Good: versions match
                 debug!("Version matches, updating from {}", expected);
             }
             (None, Some(expected)) => {
-                // Conflict: expected a version but config doesn't exist
-                return Err(crate::error::StorageError::VersionConflict {
+                return Err(StorageError::VersionConflict {
                     expected: expected.to_string(),
                     actual: "none".to_string(),
                 }
                 .into());
             }
             (Some(m), None) => {
-                // Conflict: expected no config but it exists
-                return Err(crate::error::StorageError::VersionConflict {
+                return Err(StorageError::VersionConflict {
                     expected: "none".to_string(),
                     actual: m.current_version.clone(),
                 }
                 .into());
             }
             (Some(m), Some(expected)) => {
-                // Conflict: versions don't match
-                return Err(crate::error::StorageError::VersionConflict {
+                return Err(StorageError::VersionConflict {
                     expected: expected.to_string(),
                     actual: m.current_version.clone(),
                 }
@@ -130,34 +124,19 @@ impl ConfigStorage for ObjectStoreBackend {
             }
         }
 
-        // Create or update metadata
         let mut metadata = existing_metadata.unwrap_or_else(Metadata::new);
-
-        // Generate next version
         let version_num = metadata.next_version_number();
         let version = format!("v{}", version_num);
-
-        // Write data.json
         let data_path = self.version_data_path(key, &version);
         let data_json = serde_json::to_vec_pretty(&data.content)?;
         let data_payload = PutPayload::from(data_json.clone());
         self.store.put(&data_path, data_payload).await?;
-
-        // Write schema.json if present
-        let has_schema = if let Some(ref schema) = data.schema {
-            let schema_path = self.version_schema_path(key, &version);
-            let schema_json = serde_json::to_vec_pretty(schema)?;
-            let schema_payload = PutPayload::from(schema_json);
-            self.store.put(&schema_path, schema_payload).await?;
-            true
-        } else {
-            false
-        };
-
-        // Update metadata
-        metadata.add_version(version.clone(), data_json.len(), has_schema);
+        let schema_path = self.version_schema_path(key, &version);
+        let schema_json = serde_json::to_vec_pretty(&data.schema)?;
+        let schema_payload = PutPayload::from(schema_json);
+        self.store.put(&schema_path, schema_payload).await?;
+        metadata.add_version(version.clone());
         self.write_metadata(key, &metadata).await?;
-
         info!("Stored config {} as version {}", key, version);
         Ok(())
     }
@@ -165,18 +144,13 @@ impl ConfigStorage for ObjectStoreBackend {
     #[instrument(skip(self))]
     async fn get(&self, key: &ConfigKey) -> Result<ConfigData> {
         debug!("Getting config for key: {}", key);
-
-        // Read metadata
         let metadata = self
             .read_metadata(key)
             .await?
             .ok_or_else(|| anyhow!("Config not found: {}", key))?;
-
         if metadata.current_version.is_empty() {
             bail!("No versions found for config: {}", key);
         }
-
-        // Read current version data
         let data_path = self.version_data_path(key, &metadata.current_version);
         let data_result = self
             .store
@@ -185,27 +159,14 @@ impl ConfigStorage for ObjectStoreBackend {
             .with_context(|| format!("Failed to read data for {}", key))?;
         let data_bytes = data_result.bytes().await?;
         let content: serde_json::Value = serde_json::from_slice(&data_bytes)?;
-
-        // Read schema if it exists
-        let schema = if metadata
-            .versions
-            .iter()
-            .find(|v| v.version == metadata.current_version)
-            .map(|v| v.has_schema)
-            .unwrap_or(false)
-        {
-            let schema_path = self.version_schema_path(key, &metadata.current_version);
-            match self.store.get(&schema_path).await {
-                Ok(result) => {
-                    let bytes = result.bytes().await?;
-                    Some(serde_json::from_slice(&bytes)?)
-                }
-                Err(_) => None,
-            }
-        } else {
-            None
-        };
-
+        let schema_path = self.version_schema_path(key, &metadata.current_version);
+        let schema_result = self
+            .store
+            .get(&schema_path)
+            .await
+            .with_context(|| format!("Failed to read schema for {}", key))?;
+        let schema_bytes = schema_result.bytes().await?;
+        let schema: serde_json::Value = serde_json::from_slice(&schema_bytes)?;
         Ok(ConfigData {
             content,
             schema,
@@ -216,39 +177,23 @@ impl ConfigStorage for ObjectStoreBackend {
     #[instrument(skip(self))]
     async fn get_version(&self, key: &ConfigKey, version: &str) -> Result<ConfigData> {
         debug!("Getting version {} for key: {}", version, key);
-
-        // Verify version exists in metadata
         let metadata = self
             .read_metadata(key)
             .await?
             .ok_or_else(|| anyhow!("Config not found: {}", key))?;
-
-        let version_meta = metadata
+        let _version_meta = metadata
             .versions
             .iter()
             .find(|v| v.version == version)
             .ok_or_else(|| anyhow!("Version {} not found for {}", version, key))?;
-
-        // Read version data
         let data_path = self.version_data_path(key, version);
         let data_result = self.store.get(&data_path).await?;
         let data_bytes = data_result.bytes().await?;
         let content: serde_json::Value = serde_json::from_slice(&data_bytes)?;
-
-        // Read schema if it exists
-        let schema = if version_meta.has_schema {
-            let schema_path = self.version_schema_path(key, version);
-            match self.store.get(&schema_path).await {
-                Ok(result) => {
-                    let bytes = result.bytes().await?;
-                    Some(serde_json::from_slice(&bytes)?)
-                }
-                Err(_) => None,
-            }
-        } else {
-            None
-        };
-
+        let schema_path = self.version_schema_path(key, version);
+        let schema_result = self.store.get(&schema_path).await?;
+        let schema_bytes = schema_result.bytes().await?;
+        let schema: serde_json::Value = serde_json::from_slice(&schema_bytes)?;
         Ok(ConfigData {
             content,
             schema,
@@ -259,28 +204,18 @@ impl ConfigStorage for ObjectStoreBackend {
     #[instrument(skip(self))]
     async fn delete(&self, key: &ConfigKey) -> Result<()> {
         debug!("Deleting config: {}", key);
-
-        // Get metadata to know what versions to delete
         let metadata = self
             .read_metadata(key)
             .await?
             .ok_or_else(|| anyhow!("Config not found: {}", key))?;
-
-        // Delete all version files
         for version_meta in &metadata.versions {
             let data_path = self.version_data_path(key, &version_meta.version);
             self.store.delete(&data_path).await?;
-
-            if version_meta.has_schema {
-                let schema_path = self.version_schema_path(key, &version_meta.version);
-                let _ = self.store.delete(&schema_path).await;
-            }
+            let schema_path = self.version_schema_path(key, &version_meta.version);
+            self.store.delete(&schema_path).await?;
         }
-
-        // Delete metadata
         let metadata_path = self.metadata_path(key);
         self.store.delete(&metadata_path).await?;
-
         info!("Deleted config: {}", key);
         Ok(())
     }
@@ -298,18 +233,13 @@ impl ConfigStorage for ObjectStoreBackend {
     #[instrument(skip(self))]
     async fn list(&self, prefix: Option<&str>) -> Result<Vec<ConfigKey>> {
         debug!("Listing configs with prefix: {:?}", prefix);
-
         let list_prefix = prefix.map(Path::from).unwrap_or_else(|| Path::from("/"));
-
         let mut keys = Vec::new();
         let mut stream = self.store.list(Some(&list_prefix));
-
         while let Some(meta) = stream.next().await.transpose()? {
-            // Parse metadata.json paths back to ConfigKey
             if meta.location.filename() == Some("metadata.json") {
                 let parts: Vec<_> = meta.location.parts().collect();
                 if parts.len() >= 4 {
-                    // Path format: app/env/config/metadata.json
                     let key = ConfigKey {
                         application: parts[0].as_ref().to_string(),
                         environment: parts[1].as_ref().to_string(),
@@ -319,19 +249,16 @@ impl ConfigStorage for ObjectStoreBackend {
                 }
             }
         }
-
         Ok(keys)
     }
 
     #[instrument(skip(self))]
     async fn list_versions(&self, key: &ConfigKey) -> Result<Vec<VersionInfo>> {
         debug!("Listing versions for key: {}", key);
-
         let metadata = self
             .read_metadata(key)
             .await?
             .ok_or_else(|| anyhow!("Config not found: {}", key))?;
-
         let versions = metadata
             .versions
             .iter()
@@ -340,7 +267,6 @@ impl ConfigStorage for ObjectStoreBackend {
                 timestamp: v.timestamp,
             })
             .collect();
-
         Ok(versions)
     }
 }

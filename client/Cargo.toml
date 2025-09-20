@@ -3,6 +3,14 @@ name = "client"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "client"
+path = "src/lib.rs"
+
+[[bin]]
+name = "client"
+path = "src/main.rs"
+
 [dependencies]
 shared-types = { path = "../shared-types" }
 reqwest = { workspace = true }
@@ -11,3 +19,10 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+mockito = "1.2"
+tokio = { workspace = true, features = ["full"] }
+
+[lints]
+workspace = true

@@ -11,8 +11,6 @@ pub struct Metadata {
 pub struct VersionMetadata {
     pub version: String,
     pub timestamp: DateTime<Utc>,
-    pub data_size: usize,
-    pub has_schema: bool,
 }
 
 impl Metadata {
@@ -23,12 +21,10 @@ impl Metadata {
         }
     }
 
-    pub fn add_version(&mut self, version: String, data_size: usize, has_schema: bool) {
+    pub fn add_version(&mut self, version: String) {
         let version_meta = VersionMetadata {
             version: version.clone(),
             timestamp: Utc::now(),
-            data_size,
-            has_schema,
         };
         self.versions.push(version_meta);
         self.current_version = version;

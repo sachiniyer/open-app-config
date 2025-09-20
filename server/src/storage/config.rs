@@ -4,7 +4,6 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StorageConfig {
     Local { path: PathBuf },
-    // Future: S3, GCS, Azure backends
 }
 
 impl StorageConfig {

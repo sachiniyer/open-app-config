@@ -1,12 +1,44 @@
 [workspace]
 members = [
     "shared-types",
-    "storage-backend",
     "server",
     "client",
     "cli",
 ]
 resolver = "2"
+
+[workspace.lints.rust]
+# Use Rust's built-in lint groups
+unsafe_code = "deny"
+missing_docs = "allow"  # We can enable this later when we add documentation
+
+# Rust 2018 idioms and best practices
+rust_2018_idioms = { level = "deny", priority = -1 }
+rust_2024_compatibility = { level = "warn", priority = -1 }
+
+# All warnings as errors in CI (but allow dead_code for now due to stubs)
+warnings = "deny"
+dead_code = "warn"  # Temporary until we implement all handlers
+
+[workspace.lints.clippy]
+# Enable all default clippy lints
+all = { level = "deny", priority = -1 }
+
+# Enable pedantic lints for better code quality
+pedantic = { level = "warn", priority = -1 }
+
+# But allow these specific ones that are too strict or not applicable
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+module_name_repetitions = "allow"
+
+# Explicitly deny dangerous patterns
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
 
 [workspace.dependencies]
 # Common async runtime
