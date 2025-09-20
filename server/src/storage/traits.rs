@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use shared_types::{ConfigData, ConfigKey, VersionInfo};
 
 #[async_trait]
-#[allow(dead_code)]
 pub trait ConfigStorage: Send + Sync {
     async fn get(&self, key: &ConfigKey) -> Result<ConfigData>;
     async fn put(

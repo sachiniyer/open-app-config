@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures::StreamExt;
 use object_store::local::LocalFileSystem;
@@ -92,6 +92,21 @@ impl ConfigStorage for ObjectStoreBackend {
             key, expected_version
         );
 
+        // Validate the data before storing
+        if !data.content.is_object() {
+            return Err(StorageError::ValidationError(
+                "Configuration content must be a JSON object".to_string(),
+            )
+            .into());
+        }
+
+        if !data.schema.is_object() {
+            return Err(StorageError::ValidationError(
+                "Configuration schema must be a valid JSON Schema object".to_string(),
+            )
+            .into());
+        }
+
         let existing_metadata = self.read_metadata(key).await?;
 
         match (&existing_metadata, expected_version) {
@@ -108,11 +123,13 @@ impl ConfigStorage for ObjectStoreBackend {
                 }
                 .into());
             }
-            (Some(m), None) => {
-                return Err(StorageError::VersionConflict {
-                    expected: "none".to_string(),
-                    actual: m.current_version.clone(),
-                }
+            (Some(_m), None) => {
+                // Trying to create but config already exists - could be a race condition
+                // or caller error. Return AlreadyExists for clearer error message.
+                return Err(StorageError::AlreadyExists(format!(
+                    "Configuration {} already exists. Use expected_version to update.",
+                    key
+                ))
                 .into());
             }
             (Some(m), Some(expected)) => {
@@ -130,7 +147,10 @@ impl ConfigStorage for ObjectStoreBackend {
         let data_path = self.version_data_path(key, &version);
         let data_json = serde_json::to_vec_pretty(&data.content)?;
         let data_payload = PutPayload::from(data_json.clone());
-        self.store.put(&data_path, data_payload).await?;
+        self.store
+            .put(&data_path, data_payload)
+            .await
+            .map_err(|e| StorageError::Other(format!("Failed to store data: {}", e)))?;
         let schema_path = self.version_schema_path(key, &version);
         let schema_json = serde_json::to_vec_pretty(&data.schema)?;
         let schema_payload = PutPayload::from(schema_json);
@@ -147,9 +167,11 @@ impl ConfigStorage for ObjectStoreBackend {
         let metadata = self
             .read_metadata(key)
             .await?
-            .ok_or_else(|| anyhow!("Config not found: {}", key))?;
+            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {}", key)))?;
         if metadata.current_version.is_empty() {
-            bail!("No versions found for config: {}", key);
+            return Err(
+                StorageError::NotFound(format!("No versions found for config: {}", key)).into(),
+            );
         }
         let data_path = self.version_data_path(key, &metadata.current_version);
         let data_result = self
@@ -180,12 +202,14 @@ impl ConfigStorage for ObjectStoreBackend {
         let metadata = self
             .read_metadata(key)
             .await?
-            .ok_or_else(|| anyhow!("Config not found: {}", key))?;
+            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {}", key)))?;
         let _version_meta = metadata
             .versions
             .iter()
             .find(|v| v.version == version)
-            .ok_or_else(|| anyhow!("Version {} not found for {}", version, key))?;
+            .ok_or_else(|| {
+                StorageError::NotFound(format!("Version {} not found for {}", version, key))
+            })?;
         let data_path = self.version_data_path(key, version);
         let data_result = self.store.get(&data_path).await?;
         let data_bytes = data_result.bytes().await?;
@@ -207,7 +231,7 @@ impl ConfigStorage for ObjectStoreBackend {
         let metadata = self
             .read_metadata(key)
             .await?
-            .ok_or_else(|| anyhow!("Config not found: {}", key))?;
+            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {}", key)))?;
         for version_meta in &metadata.versions {
             let data_path = self.version_data_path(key, &version_meta.version);
             self.store.delete(&data_path).await?;
@@ -258,7 +282,7 @@ impl ConfigStorage for ObjectStoreBackend {
         let metadata = self
             .read_metadata(key)
             .await?
-            .ok_or_else(|| anyhow!("Config not found: {}", key))?;
+            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {}", key)))?;
         let versions = metadata
             .versions
             .iter()

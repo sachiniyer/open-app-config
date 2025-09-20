@@ -1,3 +1,5 @@
+pub mod cached;
+
 use anyhow::Result;
 use reqwest::{Client as ReqwestClient, StatusCode};
 use shared_types::{ConfigData, ConfigKey, VersionInfo};

@@ -98,13 +98,18 @@ pub async fn put_config(
 
     let key = ConfigKey::new(app, env, config);
 
+    // Check if config exists when no schema is provided and no expected version
+    let config_exists = state.storage.exists(&key).await.map_err(|e| {
+        super::error::ApiError::InternalError(format!("Failed to check config existence: {}", e))
+    })?;
+
     // Determine the schema to use
-    let schema = match (request.schema, &request.expected_version) {
+    let schema = match (request.schema, &request.expected_version, config_exists) {
         // Schema provided - use it
-        (Some(schema), _) => schema,
+        (Some(schema), _, _) => schema,
 
         // No schema but updating existing version - use previous version's schema
-        (None, Some(expected_version)) => {
+        (None, Some(expected_version), _) => {
             // Fetch the previous version to get its schema
             let previous_data = state
                 .storage
@@ -119,13 +124,38 @@ pub async fn put_config(
             previous_data.schema
         }
 
+        // No schema, no expected version, but config exists - use current version's schema
+        (None, None, true) => {
+            let current_data = state.storage.get(&key).await.map_err(|e| {
+                super::error::ApiError::InternalError(format!(
+                    "Failed to fetch current version: {}",
+                    e
+                ))
+            })?;
+            current_data.schema
+        }
+
         // No schema and creating first version - error
-        (None, None) => {
+        (None, None, false) => {
             return Err(super::error::ApiError::BadRequest(
                 "Schema is required when creating the first version".to_string(),
             ));
         }
     };
+
+    // Validate that content is a valid JSON object (not array or primitive)
+    if !request.content.is_object() {
+        return Err(super::error::ApiError::BadRequest(
+            "Content must be a JSON object".to_string(),
+        ));
+    }
+
+    // Validate that schema is a valid JSON schema if provided
+    if !schema.is_object() {
+        return Err(super::error::ApiError::BadRequest(
+            "Schema must be a valid JSON Schema object".to_string(),
+        ));
+    }
 
     // Create the config data with the determined schema
     let config_data = shared_types::ConfigData {
@@ -165,6 +195,18 @@ pub async fn delete_config(
     info!("Deleting config: {}/{}/{}", app, env, config);
 
     let key = ConfigKey::new(app, env, config);
+
+    // Check if config exists before trying to delete
+    let exists = state.storage.exists(&key).await.map_err(|e| {
+        super::error::ApiError::InternalError(format!("Failed to check existence: {}", e))
+    })?;
+
+    if !exists {
+        return Err(super::error::ApiError::NotFound(format!(
+            "Configuration {} not found",
+            key
+        )));
+    }
 
     state.storage.delete(&key).await.map_err(|e| {
         super::error::ApiError::InternalError(format!("Failed to delete config: {}", e))

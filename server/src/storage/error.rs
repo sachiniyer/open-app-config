@@ -1,7 +1,6 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-#[allow(dead_code)]
 pub enum StorageError {
     #[error("Configuration not found: {0}")]
     NotFound(String),

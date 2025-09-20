@@ -3,7 +3,6 @@ use shared_types::{ConfigData, ConfigKey, VersionInfo};
 
 /// Request body for creating or updating a configuration
 #[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)] // Will be used when handlers are implemented
 pub struct PutConfigRequest {
     /// The configuration content (JSON)
     pub content: serde_json::Value,
@@ -65,7 +64,6 @@ pub struct ErrorResponse {
 
 // Conversion helpers
 impl GetConfigResponse {
-    #[allow(dead_code)] // Will be used when handlers are implemented
     pub fn from_data_and_key(data: ConfigData, key: &ConfigKey) -> Self {
         Self {
             application: key.application.clone(),

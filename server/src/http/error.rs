@@ -8,7 +8,6 @@ use super::dto::ErrorResponse;
 use crate::storage::StorageError;
 
 #[derive(Debug)]
-#[allow(dead_code)] // Will be used when handlers are implemented
 pub enum ApiError {
     NotFound(String),
     BadRequest(String),
