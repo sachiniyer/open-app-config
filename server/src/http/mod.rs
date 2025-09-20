@@ -1,10 +1,7 @@
-mod dto;
-mod error;
-mod handlers;
-mod server;
-mod state;
-
-#[cfg(test)]
-mod tests;
+pub mod dto;
+pub mod error;
+pub mod handlers;
+pub mod server;
+pub mod state;
 
 pub use server::start_server;

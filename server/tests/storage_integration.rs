@@ -1,6 +1,4 @@
-use super::backend::ObjectStoreBackend;
-use super::config::StorageConfig;
-use super::traits::ConfigStorage;
+use server::storage::{ConfigStorage, ObjectStoreBackend, StorageConfig};
 use shared_types::{ConfigData, ConfigKey};
 use tempfile::TempDir;
 

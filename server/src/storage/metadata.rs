@@ -43,3 +43,107 @@ impl Metadata {
             + 1
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_metadata_new() {
+        let metadata = Metadata::new();
+        assert_eq!(metadata.current_version, "");
+        assert!(metadata.versions.is_empty());
+    }
+
+    #[test]
+    fn test_add_version() {
+        let mut metadata = Metadata::new();
+        metadata.add_version("v1".to_string());
+
+        assert_eq!(metadata.current_version, "v1");
+        assert_eq!(metadata.versions.len(), 1);
+        assert_eq!(metadata.versions[0].version, "v1");
+    }
+
+    #[test]
+    fn test_add_multiple_versions() {
+        let mut metadata = Metadata::new();
+        metadata.add_version("v1".to_string());
+        metadata.add_version("v2".to_string());
+        metadata.add_version("v3".to_string());
+
+        assert_eq!(metadata.current_version, "v3");
+        assert_eq!(metadata.versions.len(), 3);
+        assert_eq!(metadata.versions[0].version, "v1");
+        assert_eq!(metadata.versions[1].version, "v2");
+        assert_eq!(metadata.versions[2].version, "v3");
+    }
+
+    #[test]
+    fn test_next_version_number_empty() {
+        let metadata = Metadata::new();
+        assert_eq!(metadata.next_version_number(), 1);
+    }
+
+    #[test]
+    fn test_next_version_number_with_versions() {
+        let mut metadata = Metadata::new();
+        metadata.add_version("v1".to_string());
+        assert_eq!(metadata.next_version_number(), 2);
+
+        metadata.add_version("v2".to_string());
+        assert_eq!(metadata.next_version_number(), 3);
+
+        metadata.add_version("v5".to_string());
+        assert_eq!(metadata.next_version_number(), 6);
+    }
+
+    #[test]
+    fn test_next_version_number_with_non_sequential() {
+        let mut metadata = Metadata::new();
+        metadata.versions.push(VersionMetadata {
+            version: "v1".to_string(),
+            timestamp: Utc::now(),
+        });
+        metadata.versions.push(VersionMetadata {
+            version: "v10".to_string(),
+            timestamp: Utc::now(),
+        });
+        metadata.versions.push(VersionMetadata {
+            version: "v5".to_string(),
+            timestamp: Utc::now(),
+        });
+
+        assert_eq!(metadata.next_version_number(), 11);
+    }
+
+    #[test]
+    fn test_next_version_number_with_invalid_versions() {
+        let mut metadata = Metadata::new();
+        metadata.versions.push(VersionMetadata {
+            version: "invalid".to_string(),
+            timestamp: Utc::now(),
+        });
+        metadata.versions.push(VersionMetadata {
+            version: "v2".to_string(),
+            timestamp: Utc::now(),
+        });
+        metadata.versions.push(VersionMetadata {
+            version: "vNaN".to_string(),
+            timestamp: Utc::now(),
+        });
+
+        assert_eq!(metadata.next_version_number(), 3);
+    }
+
+    #[test]
+    fn test_version_metadata_timestamp() {
+        let before = Utc::now();
+        let mut metadata = Metadata::new();
+        metadata.add_version("v1".to_string());
+        let after = Utc::now();
+
+        assert!(metadata.versions[0].timestamp >= before);
+        assert!(metadata.versions[0].timestamp <= after);
+    }
+}

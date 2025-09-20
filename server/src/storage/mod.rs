@@ -1,11 +1,8 @@
-mod backend;
-mod config;
-mod error;
-mod metadata;
-mod traits;
-
-#[cfg(test)]
-mod tests;
+pub mod backend;
+pub mod config;
+pub mod error;
+pub mod metadata;
+pub mod traits;
 
 pub use backend::ObjectStoreBackend;
 pub use config::StorageConfig;

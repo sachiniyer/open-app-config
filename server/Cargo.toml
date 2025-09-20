@@ -3,6 +3,14 @@ name = "server"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "server"
+path = "src/main.rs"
+
 [dependencies]
 shared-types = { path = "../shared-types" }
 axum = { workspace = true }
