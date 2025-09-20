@@ -13,12 +13,18 @@ pub struct VersionMetadata {
     pub timestamp: DateTime<Utc>,
 }
 
-impl Metadata {
-    pub fn new() -> Self {
+impl Default for Metadata {
+    fn default() -> Self {
         Self {
             current_version: String::new(),
             versions: Vec::new(),
         }
+    }
+}
+
+impl Metadata {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn add_version(&mut self, version: String) {

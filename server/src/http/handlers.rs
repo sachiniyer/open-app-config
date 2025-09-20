@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args)]
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -87,7 +88,6 @@ pub async fn get_config_version(
 }
 
 /// PUT /configs/:app/:env/:config
-/// Create or update a configuration
 #[instrument(skip(state, request))]
 pub async fn put_config(
     State(state): State<Arc<AppState>>,
@@ -95,76 +95,17 @@ pub async fn put_config(
     Json(request): Json<PutConfigRequest>,
 ) -> ApiResult<Json<SuccessResponse>> {
     info!("Putting config: {}/{}/{}", app, env, config);
-
     let key = ConfigKey::new(app, env, config);
 
-    // Check if config exists when no schema is provided and no expected version
-    let config_exists = state.storage.exists(&key).await.map_err(|e| {
-        super::error::ApiError::InternalError(format!("Failed to check config existence: {}", e))
-    })?;
+    validate_request(&request)?;
+    let schema = resolve_schema(&state, &key, &request).await?;
 
-    // Determine the schema to use
-    let schema = match (request.schema, &request.expected_version, config_exists) {
-        // Schema provided - use it
-        (Some(schema), _, _) => schema,
-
-        // No schema but updating existing version - use previous version's schema
-        (None, Some(expected_version), _) => {
-            // Fetch the previous version to get its schema
-            let previous_data = state
-                .storage
-                .get_version(&key, expected_version)
-                .await
-                .map_err(|e| {
-                    super::error::ApiError::InternalError(format!(
-                        "Failed to fetch previous version: {}",
-                        e
-                    ))
-                })?;
-            previous_data.schema
-        }
-
-        // No schema, no expected version, but config exists - use current version's schema
-        (None, None, true) => {
-            let current_data = state.storage.get(&key).await.map_err(|e| {
-                super::error::ApiError::InternalError(format!(
-                    "Failed to fetch current version: {}",
-                    e
-                ))
-            })?;
-            current_data.schema
-        }
-
-        // No schema and creating first version - error
-        (None, None, false) => {
-            return Err(super::error::ApiError::BadRequest(
-                "Schema is required when creating the first version".to_string(),
-            ));
-        }
-    };
-
-    // Validate that content is a valid JSON object (not array or primitive)
-    if !request.content.is_object() {
-        return Err(super::error::ApiError::BadRequest(
-            "Content must be a JSON object".to_string(),
-        ));
-    }
-
-    // Validate that schema is a valid JSON schema if provided
-    if !schema.is_object() {
-        return Err(super::error::ApiError::BadRequest(
-            "Schema must be a valid JSON Schema object".to_string(),
-        ));
-    }
-
-    // Create the config data with the determined schema
     let config_data = shared_types::ConfigData {
         content: request.content,
         schema,
-        version: String::new(), // Will be set by storage backend
+        version: String::new(),
     };
 
-    // Store the configuration
     state
         .storage
         .put(&key, &config_data, request.expected_version.as_deref())
@@ -183,6 +124,62 @@ pub async fn put_config(
                 .unwrap_or_else(|_| "unknown".to_string())
         )),
     }))
+}
+
+fn validate_request(request: &PutConfigRequest) -> ApiResult<()> {
+    if !request.content.is_object() {
+        return Err(super::error::ApiError::BadRequest(
+            "Content must be a JSON object".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+async fn resolve_schema(
+    state: &Arc<AppState>,
+    key: &ConfigKey,
+    request: &PutConfigRequest,
+) -> ApiResult<serde_json::Value> {
+    if let Some(schema) = &request.schema {
+        if !schema.is_object() {
+            return Err(super::error::ApiError::BadRequest(
+                "Schema must be a valid JSON Schema object".to_string(),
+            ));
+        }
+        return Ok(schema.clone());
+    }
+
+    if let Some(version) = &request.expected_version {
+        return state
+            .storage
+            .get_version(key, version)
+            .await
+            .map(|data| data.schema)
+            .map_err(|e| {
+                super::error::ApiError::InternalError(format!(
+                    "Failed to fetch previous version: {}",
+                    e
+                ))
+            });
+    }
+
+    if state.storage.exists(key).await.unwrap_or(false) {
+        return state
+            .storage
+            .get(key)
+            .await
+            .map(|data| data.schema)
+            .map_err(|e| {
+                super::error::ApiError::InternalError(format!(
+                    "Failed to fetch current version: {}",
+                    e
+                ))
+            });
+    }
+
+    Err(super::error::ApiError::BadRequest(
+        "Schema is required when creating the first version".to_string(),
+    ))
 }
 
 /// DELETE /configs/:app/:env/:config

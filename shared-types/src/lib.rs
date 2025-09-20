@@ -53,6 +53,7 @@ pub struct VersionInfo {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -74,7 +75,7 @@ mod tests {
     #[test]
     fn test_config_key_display() {
         let key = ConfigKey::new("app", "staging", "api");
-        assert_eq!(format!("{}", key), "app/staging/api");
+        assert_eq!(format!("{key}"), "app/staging/api");
     }
 
     #[test]

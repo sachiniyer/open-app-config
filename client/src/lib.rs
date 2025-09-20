@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args, clippy::map_unwrap_or)]
 pub mod cached;
 
 use anyhow::Result;
