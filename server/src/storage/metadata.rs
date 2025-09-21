@@ -1,9 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Metadata {
+    #[serde(default)]
     pub current_version: String,
+    #[serde(default)]
     pub versions: Vec<VersionMetadata>,
 }
 
@@ -11,15 +13,6 @@ pub struct Metadata {
 pub struct VersionMetadata {
     pub version: String,
     pub timestamp: DateTime<Utc>,
-}
-
-impl Default for Metadata {
-    fn default() -> Self {
-        Self {
-            current_version: String::new(),
-            versions: Vec::new(),
-        }
-    }
 }
 
 impl Metadata {

@@ -15,12 +15,13 @@ pub async fn start_server(storage: Arc<dyn ConfigStorage>, bind_address: SocketA
         // Health check
         .route("/health", get(handlers::health_check))
         // Config CRUD operations
-        .route("/configs", get(handlers::list_configs))
         .route(
             "/configs/:app/:env/:config",
-            get(handlers::get_config)
-                .put(handlers::put_config)
-                .delete(handlers::delete_config),
+            get(handlers::get_config).put(handlers::put_config),
+        )
+        .route(
+            "/configs/:app/:env",
+            axum::routing::delete(handlers::delete_environment),
         )
         // Version operations
         .route(

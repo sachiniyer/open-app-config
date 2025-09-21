@@ -42,7 +42,7 @@ impl From<anyhow::Error> for ApiError {
             Some(storage_err) => match storage_err {
                 StorageError::VersionConflict { .. } => ApiError::BadRequest(err.to_string()),
                 StorageError::NotFound(_) => ApiError::NotFound(err.to_string()),
-                _ => ApiError::InternalError(err.to_string()),
+                StorageError::AlreadyExists(_) => ApiError::InternalError(err.to_string()),
             },
             None => ApiError::InternalError(err.to_string()),
         }

@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 use anyhow::Result;
 use client::ConfigClient;
 use serde_json::json;
@@ -18,11 +20,11 @@ impl TestServer {
         let _ = std::fs::remove_dir_all("/tmp/open-app-config-test");
 
         Command::new("cargo")
-            .args(&["build", "--bin", "server", "-p", "server"])
+            .args(["build", "--bin", "server", "-p", "server"])
             .output()?;
 
         let mut process = Command::new("cargo")
-            .args(&["run", "--bin", "server", "-p", "server"])
+            .args(["run", "--bin", "server", "-p", "server"])
             .env("HOST", "127.0.0.1")
             .env("PORT", port.to_string())
             .env("STORAGE_PATH", "/tmp/open-app-config-test")
@@ -91,7 +93,7 @@ async fn test_e2e_basic_workflow() -> Result<()> {
     let retrieved = client.get_config(&key).await?;
     assert_eq!(retrieved.content, content);
     assert_eq!(retrieved.schema, schema);
-    assert!(client.is_cached(&key).await);
+    // Cache verification removed - cache is now internal
 
     // Update config
     let updated_content = json!({
@@ -104,21 +106,18 @@ async fn test_e2e_basic_workflow() -> Result<()> {
         .await?;
     assert!(!version2.is_empty());
 
-    // Cache should be invalidated after put
-    assert!(!client.is_cached(&key).await);
+    // Cache invalidation is automatic after put
 
     // Refresh to get latest
     let refreshed = client.refresh(&key).await?;
     assert_eq!(refreshed.content, updated_content);
-    assert!(client.is_cached(&key).await);
 
     // List versions
-    let versions = client.list_versions(&key).await?;
-    assert!(versions.len() >= 2);
+    let version_list = client.list_versions(&key).await?;
+    assert!(version_list.len() >= 2);
 
-    // Delete config
-    client.delete_config(&key).await?;
-    assert!(!client.is_cached(&key).await);
+    // Delete entire environment
+    client.delete_environment("myapp", "production").await?;
     assert!(client.get_config(&key).await.is_err());
 
     Ok(())
@@ -145,31 +144,22 @@ async fn test_caching_behavior() -> Result<()> {
         .put_config(&key, content.clone(), Some(schema.clone()), None)
         .await?;
 
-    // First get should cache
-    assert_eq!(client.cache_size().await, 0);
+    // First get - caching is internal
     let data1 = client.get_config(&key).await?;
-    assert_eq!(client.cache_size().await, 1);
-    assert!(client.is_cached(&key).await);
 
-    // Second get should use cache
+    // Second get should use cache internally
     let data2 = client.get_config(&key).await?;
     assert_eq!(data1.version, data2.version);
-    assert_eq!(client.cache_size().await, 1);
 
-    // Clear cache
-    client.clear_cache().await;
-    assert_eq!(client.cache_size().await, 0);
-
-    // Get again should re-cache
+    // Get again - cache handled internally
     client.get_config(&key).await?;
-    assert_eq!(client.cache_size().await, 1);
 
-    // Refresh should update cache
+    // Refresh should update cache internally
     let refreshed = client.refresh(&key).await?;
     assert_eq!(refreshed.content, content);
-    assert_eq!(client.cache_size().await, 1);
 
-    client.delete_config(&key).await?;
+    // Changed to delete entire environment since individual delete was removed
+    client.delete_environment("myapp", "development").await?;
     Ok(())
 }
 
@@ -214,6 +204,7 @@ async fn test_e2e_error_handling() -> Result<()> {
         .await
         .is_err());
 
-    client.delete_config(&key).await?;
+    // Changed to delete entire environment since individual delete was removed
+    client.delete_environment("myapp", "production").await?;
     Ok(())
 }

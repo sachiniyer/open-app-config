@@ -1,7 +1,5 @@
-#![allow(clippy::uninlined_format_args, clippy::unused_self)]
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use futures::StreamExt;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
 use object_store::{ObjectStore, PutPayload};
@@ -156,23 +154,52 @@ impl ConfigStorage for ObjectStoreBackend {
         })
     }
 
-    async fn delete(&self, key: &ConfigKey) -> Result<()> {
-        let metadata = self
-            .read_metadata(key)
-            .await?
-            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {}", key)))?;
+    async fn delete_environment(&self, app: &str, env: &str) -> Result<usize> {
+        use futures::StreamExt;
 
-        for version_meta in &metadata.versions {
-            let data_path = self.version_path(key, &version_meta.version, "data.json");
-            self.store.delete(&data_path).await?;
-            let schema_path = self.version_path(key, &version_meta.version, "schema.json");
-            self.store.delete(&schema_path).await?;
+        // List all files in the app/env prefix
+        let prefix = Path::from(format!("{}/{}", app, env));
+        let mut stream = self.store.list(Some(&prefix));
+
+        let mut deleted_count = 0;
+        let mut configs_found = std::collections::HashSet::new();
+
+        // Find all unique config names
+        while let Some(meta) = stream.next().await.transpose()? {
+            let parts: Vec<_> = meta.location.parts().collect();
+            if parts.len() >= 3 {
+                configs_found.insert(parts[2].as_ref().to_string());
+            }
         }
 
-        let metadata_path = self.config_path(key, "metadata.json");
-        self.store.delete(&metadata_path).await?;
+        // Delete each config
+        for config_name in configs_found {
+            let key = ConfigKey::new(app.to_string(), env.to_string(), config_name);
 
-        Ok(())
+            let metadata_result = self.read_metadata(&key).await;
+            #[allow(clippy::single_match)]
+            match metadata_result {
+                Ok(Some(metadata)) => {
+                    // Delete all version files
+                    for version_meta in &metadata.versions {
+                        let data_path = self.version_path(&key, &version_meta.version, "data.json");
+                        let _ = self.store.delete(&data_path).await;
+                        let schema_path =
+                            self.version_path(&key, &version_meta.version, "schema.json");
+                        let _ = self.store.delete(&schema_path).await;
+                    }
+
+                    // Delete metadata
+                    let metadata_path = self.config_path(&key, "metadata.json");
+                    let _ = self.store.delete(&metadata_path).await;
+
+                    deleted_count += 1;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(deleted_count)
     }
 
     async fn exists(&self, key: &ConfigKey) -> Result<bool> {
@@ -182,26 +209,6 @@ impl ConfigStorage for ObjectStoreBackend {
             Err(object_store::Error::NotFound { .. }) => Ok(false),
             Err(e) => Err(e.into()),
         }
-    }
-
-    async fn list(&self, prefix: Option<&str>) -> Result<Vec<ConfigKey>> {
-        let list_prefix = prefix.map(Path::from).unwrap_or_else(|| Path::from("/"));
-        let mut keys = Vec::new();
-        let mut stream = self.store.list(Some(&list_prefix));
-
-        while let Some(meta) = stream.next().await.transpose()? {
-            if meta.location.filename() == Some("metadata.json") {
-                let parts: Vec<_> = meta.location.parts().collect();
-                if parts.len() >= 4 {
-                    keys.push(ConfigKey {
-                        application: parts[0].as_ref().to_string(),
-                        environment: parts[1].as_ref().to_string(),
-                        config_name: parts[2].as_ref().to_string(),
-                    });
-                }
-            }
-        }
-        Ok(keys)
     }
 
     async fn list_versions(&self, key: &ConfigKey) -> Result<Vec<VersionInfo>> {

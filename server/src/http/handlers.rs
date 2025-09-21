@@ -1,26 +1,16 @@
-#![allow(clippy::uninlined_format_args)]
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     Json,
 };
-use serde::Deserialize;
 use shared_types::ConfigKey;
 use std::sync::Arc;
 use tracing::{info, instrument};
 
 use super::{
-    dto::{
-        ConfigSummary, GetConfigResponse, ListConfigsResponse, ListVersionsResponse,
-        PutConfigRequest, SuccessResponse,
-    },
+    dto::{GetConfigResponse, ListVersionsResponse, PutConfigRequest, SuccessResponse},
     error::ApiResult,
     state::AppState,
 };
-
-#[derive(Debug, Deserialize)]
-pub struct ListParams {
-    pub prefix: Option<String>,
-}
 
 /// GET /configs/:app/:env/:config
 /// Get the current version of a configuration
@@ -97,8 +87,8 @@ pub async fn put_config(
     info!("Putting config: {}/{}/{}", app, env, config);
     let key = ConfigKey::new(app, env, config);
 
-    validate_request(&request)?;
     let schema = resolve_schema(&state, &key, &request).await?;
+    validate_request(&request, &schema)?;
 
     let config_data = shared_types::ConfigData {
         content: request.content,
@@ -120,18 +110,33 @@ pub async fn put_config(
                 .storage
                 .get(&key)
                 .await
-                .map(|d| d.version)
-                .unwrap_or_else(|_| "unknown".to_string())
+                .map_or_else(|_| "unknown".to_string(), |d| d.version)
         )),
     }))
 }
 
-fn validate_request(request: &PutConfigRequest) -> ApiResult<()> {
+fn validate_request(request: &PutConfigRequest, schema: &serde_json::Value) -> ApiResult<()> {
     if !request.content.is_object() {
         return Err(super::error::ApiError::BadRequest(
             "Content must be a JSON object".to_string(),
         ));
     }
+
+    // Validate content against schema
+    let compiled_schema = jsonschema::Validator::new(schema)
+        .map_err(|e| super::error::ApiError::BadRequest(format!("Invalid schema: {}", e)))?;
+
+    let validation_result = compiled_schema.validate(&request.content);
+    if let Err(errors) = validation_result {
+        let error_messages: Vec<String> = errors
+            .map(|e| format!("{}: {}", e.instance_path, e))
+            .collect();
+        return Err(super::error::ApiError::BadRequest(format!(
+            "Validation failed: {}",
+            error_messages.join(", ")
+        )));
+    }
+
     Ok(())
 }
 
@@ -182,78 +187,30 @@ async fn resolve_schema(
     ))
 }
 
-/// DELETE /configs/:app/:env/:config
-/// Delete a configuration and all its versions
+/// DELETE /configs/:app/:env
+/// Delete all configurations for an application environment
 #[instrument(skip(state))]
-pub async fn delete_config(
+pub async fn delete_environment(
     State(state): State<Arc<AppState>>,
-    Path((app, env, config)): Path<(String, String, String)>,
+    Path((app, env)): Path<(String, String)>,
 ) -> ApiResult<Json<SuccessResponse>> {
-    info!("Deleting config: {}/{}/{}", app, env, config);
+    info!("Deleting all configs for: {}/{}", app, env);
 
-    let key = ConfigKey::new(app, env, config);
-
-    // Check if config exists before trying to delete
-    let exists = state.storage.exists(&key).await.map_err(|e| {
-        super::error::ApiError::InternalError(format!("Failed to check existence: {}", e))
-    })?;
-
-    if !exists {
-        return Err(super::error::ApiError::NotFound(format!(
-            "Configuration {} not found",
-            key
-        )));
-    }
-
-    state.storage.delete(&key).await.map_err(|e| {
-        super::error::ApiError::InternalError(format!("Failed to delete config: {}", e))
-    })?;
-
-    Ok(Json(SuccessResponse {
-        message: format!("Configuration {} deleted successfully", key),
-        version: None,
-    }))
-}
-
-/// GET /configs
-/// List all configurations with optional prefix filtering
-#[instrument(skip(state))]
-pub async fn list_configs(
-    State(state): State<Arc<AppState>>,
-    Query(params): Query<ListParams>,
-) -> ApiResult<Json<ListConfigsResponse>> {
-    info!("Listing configs with prefix: {:?}", params.prefix);
-
-    let keys = state
+    let deleted_count = state
         .storage
-        .list(params.prefix.as_deref())
+        .delete_environment(&app, &env)
         .await
         .map_err(|e| {
-            super::error::ApiError::InternalError(format!("Failed to list configs: {}", e))
+            super::error::ApiError::InternalError(format!("Failed to delete environment: {}", e))
         })?;
 
-    // Convert keys to config summaries
-    let mut configs = Vec::new();
-    for key in keys {
-        // Get the current version for each config
-        let result = state.storage.get(&key).await;
-        match result {
-            Ok(data) => {
-                configs.push(ConfigSummary {
-                    application: key.application,
-                    environment: key.environment,
-                    config_name: key.config_name,
-                    current_version: data.version,
-                });
-            }
-            Err(e) => {
-                // Log error but continue with other configs
-                tracing::warn!("Failed to get config {}: {}", key, e);
-            }
-        }
-    }
-
-    Ok(Json(ListConfigsResponse { configs }))
+    Ok(Json(SuccessResponse {
+        message: format!(
+            "Deleted {} configurations for {}/{}",
+            deleted_count, app, env
+        ),
+        version: None,
+    }))
 }
 
 /// GET /health

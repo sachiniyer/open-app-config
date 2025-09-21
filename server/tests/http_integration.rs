@@ -1,3 +1,5 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -12,7 +14,7 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tower::util::ServiceExt;
 
-async fn create_test_app() -> (Router, TempDir) {
+fn create_test_app() -> (Router, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let config = StorageConfig::Local {
         path: temp_dir.path().to_path_buf(),
@@ -25,10 +27,7 @@ async fn create_test_app() -> (Router, TempDir) {
     let app = Router::new()
         .route("/configs/:app/:env/:config", get(handlers::get_config))
         .route("/configs/:app/:env/:config", put(handlers::put_config))
-        .route(
-            "/configs/:app/:env/:config",
-            delete(handlers::delete_config),
-        )
+        .route("/configs/:app/:env", delete(handlers::delete_environment))
         .route(
             "/configs/:app/:env/:config/versions",
             get(handlers::list_versions),
@@ -37,7 +36,6 @@ async fn create_test_app() -> (Router, TempDir) {
             "/configs/:app/:env/:config/versions/:version",
             get(handlers::get_config_version),
         )
-        .route("/configs", get(handlers::list_configs))
         .route("/health", get(handlers::health_check))
         .with_state(state);
 
@@ -46,7 +44,7 @@ async fn create_test_app() -> (Router, TempDir) {
 
 #[tokio::test]
 async fn test_health_check() {
-    let (app, _dir) = create_test_app().await;
+    let (app, _dir) = create_test_app();
 
     let response = app
         .oneshot(
@@ -72,7 +70,7 @@ async fn test_health_check() {
 
 #[tokio::test]
 async fn test_put_and_get_config() {
-    let (app, _dir) = create_test_app().await;
+    let (app, _dir) = create_test_app();
 
     // Create a config
     let put_request = PutConfigRequest {
@@ -124,7 +122,7 @@ async fn test_put_and_get_config() {
 
 #[tokio::test]
 async fn test_update_config_with_optimistic_locking() {
-    let (app, _dir) = create_test_app().await;
+    let (app, _dir) = create_test_app();
 
     // Create initial version
     let put_request = PutConfigRequest {
@@ -191,7 +189,7 @@ async fn test_update_config_with_optimistic_locking() {
 
 #[tokio::test]
 async fn test_schema_required_for_first_version() {
-    let (app, _dir) = create_test_app().await;
+    let (app, _dir) = create_test_app();
 
     // Try to create without schema
     let put_request = PutConfigRequest {
@@ -217,7 +215,7 @@ async fn test_schema_required_for_first_version() {
 
 #[tokio::test]
 async fn test_list_versions() {
-    let (app, _dir) = create_test_app().await;
+    let (app, _dir) = create_test_app();
 
     // Create multiple versions
     for i in 1..=3 {
@@ -274,7 +272,7 @@ async fn test_list_versions() {
 
 #[tokio::test]
 async fn test_get_specific_version() {
-    let (app, _dir) = create_test_app().await;
+    let (app, _dir) = create_test_app();
 
     // Create two versions
     let v1_content = serde_json::json!({"feature": "a"});
@@ -357,35 +355,38 @@ async fn test_get_specific_version() {
 }
 
 #[tokio::test]
-async fn test_delete_config() {
-    let (app, _dir) = create_test_app().await;
+async fn test_delete_environment() {
+    let (app, _dir) = create_test_app();
 
-    // Create a config
+    // Create some configs in an environment
     let put_request = PutConfigRequest {
         content: serde_json::json!({"temporary": true}),
         schema: Some(serde_json::json!({"type": "object"})),
         expected_version: None,
     };
 
-    app.clone()
-        .oneshot(
-            Request::builder()
-                .method("PUT")
-                .uri("/configs/app/temp/config")
-                .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&put_request).unwrap()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    // Create multiple configs
+    for config_name in &["config1", "config2", "config3"] {
+        app.clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/configs/app/temp/{config_name}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_string(&put_request).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+    }
 
-    // Delete it
+    // Delete the entire environment
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri("/configs/app/temp/config")
+                .uri("/configs/app/temp")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -394,11 +395,11 @@ async fn test_delete_config() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Try to get it - should fail
+    // Try to get one of the configs - should fail
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/configs/app/temp/config")
+                .uri("/configs/app/temp/config1")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -409,82 +410,8 @@ async fn test_delete_config() {
 }
 
 #[tokio::test]
-async fn test_list_configs() {
-    let (app, _dir) = create_test_app().await;
-
-    // Create several configs
-    let configs = vec![
-        ("app1", "dev", "db"),
-        ("app1", "prod", "api"),
-        ("app2", "dev", "cache"),
-    ];
-
-    for (app_name, env, config) in configs {
-        let put_request = PutConfigRequest {
-            content: serde_json::json!({"test": true}),
-            schema: Some(serde_json::json!({"type": "object"})),
-            expected_version: None,
-        };
-
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .method("PUT")
-                    .uri(format!("/configs/{}/{}/{}", app_name, env, config))
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&put_request).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-    }
-
-    // List all
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/configs")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let list: ListConfigsResponse = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(list.configs.len(), 3);
-
-    // List with prefix
-    let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/configs?prefix=app1")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let list: ListConfigsResponse = serde_json::from_slice(&body).unwrap();
-
-    assert_eq!(list.configs.len(), 2);
-    assert!(list.configs.iter().all(|c| c.application == "app1"));
-}
-
-#[tokio::test]
 async fn test_get_nonexistent_config() {
-    let (app, _dir) = create_test_app().await;
+    let (app, _dir) = create_test_app();
 
     let response = app
         .oneshot(

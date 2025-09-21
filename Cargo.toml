@@ -33,8 +33,9 @@ must_use_candidate = "allow"
 module_name_repetitions = "allow"
 
 # Explicitly deny dangerous patterns
+# Tests can override these with #![cfg_attr(test, allow(clippy::unwrap_used))]
 unwrap_used = "deny"
-expect_used = "warn"
+expect_used = "deny"
 panic = "warn"
 todo = "warn"
 unimplemented = "warn"

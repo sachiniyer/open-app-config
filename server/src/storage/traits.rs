@@ -11,9 +11,8 @@ pub trait ConfigStorage: Send + Sync {
         data: &ConfigData,
         expected_version: Option<&str>,
     ) -> Result<()>;
-    async fn delete(&self, key: &ConfigKey) -> Result<()>;
+    async fn delete_environment(&self, app: &str, env: &str) -> Result<usize>;
     async fn exists(&self, key: &ConfigKey) -> Result<bool>;
-    async fn list(&self, prefix: Option<&str>) -> Result<Vec<ConfigKey>>;
     async fn get_version(&self, key: &ConfigKey, version: &str) -> Result<ConfigData>;
     async fn list_versions(&self, key: &ConfigKey) -> Result<Vec<VersionInfo>>;
 }

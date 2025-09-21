@@ -1,8 +1,10 @@
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 use server::storage::{ConfigStorage, ObjectStoreBackend, StorageConfig};
 use shared_types::{ConfigData, ConfigKey};
 use tempfile::TempDir;
 
-async fn create_test_backend() -> (ObjectStoreBackend, TempDir) {
+fn create_test_backend() -> (ObjectStoreBackend, TempDir) {
     let temp_dir = TempDir::new().unwrap();
     let config = StorageConfig::Local {
         path: temp_dir.path().to_path_buf(),
@@ -13,7 +15,7 @@ async fn create_test_backend() -> (ObjectStoreBackend, TempDir) {
 
 #[tokio::test]
 async fn test_put_and_get_config() {
-    let (backend, _dir) = create_test_backend().await;
+    let (backend, _dir) = create_test_backend();
 
     let key = ConfigKey::new("test-app", "dev", "database");
     let data = ConfigData {
@@ -34,7 +36,7 @@ async fn test_put_and_get_config() {
 
 #[tokio::test]
 async fn test_optimistic_concurrency_control() {
-    let (backend, _dir) = create_test_backend().await;
+    let (backend, _dir) = create_test_backend();
 
     let key = ConfigKey::new("test-app", "prod", "api");
     let data1 = ConfigData {
@@ -70,7 +72,7 @@ async fn test_optimistic_concurrency_control() {
 
 #[tokio::test]
 async fn test_list_versions() {
-    let (backend, _dir) = create_test_backend().await;
+    let (backend, _dir) = create_test_backend();
 
     let key = ConfigKey::new("test-app", "staging", "cache");
 
@@ -104,7 +106,7 @@ async fn test_list_versions() {
 
 #[tokio::test]
 async fn test_get_specific_version() {
-    let (backend, _dir) = create_test_backend().await;
+    let (backend, _dir) = create_test_backend();
 
     let key = ConfigKey::new("test-app", "dev", "features");
 
@@ -139,68 +141,46 @@ async fn test_get_specific_version() {
 }
 
 #[tokio::test]
-async fn test_delete_config() {
-    let (backend, _dir) = create_test_backend().await;
+async fn test_delete_environment() {
+    let (backend, _dir) = create_test_backend();
 
-    let key = ConfigKey::new("test-app", "temp", "config");
-    let data = ConfigData {
-        content: serde_json::json!({"temp": true}),
-        schema: serde_json::json!({"type": "object"}),
-        version: String::new(),
-    };
-
-    // Create and verify
-    backend.put(&key, &data, None).await.unwrap();
-    assert!(backend.exists(&key).await.unwrap());
-
-    // Delete and verify
-    backend.delete(&key).await.unwrap();
-    assert!(!backend.exists(&key).await.unwrap());
-
-    // Get should fail
-    let result = backend.get(&key).await;
-    assert!(result.is_err());
-}
-
-#[tokio::test]
-async fn test_list_configs() {
-    let (backend, _dir) = create_test_backend().await;
-
-    // Create configs with different prefixes
+    // Create multiple configs in same environment
     let configs = vec![
-        ConfigKey::new("app1", "dev", "db"),
-        ConfigKey::new("app1", "prod", "api"),
-        ConfigKey::new("app2", "dev", "cache"),
-        ConfigKey::new("app2", "staging", "queue"),
+        ConfigKey::new("test-app", "temp", "config1"),
+        ConfigKey::new("test-app", "temp", "config2"),
+        ConfigKey::new("test-app", "temp", "config3"),
     ];
 
     for key in &configs {
         let data = ConfigData {
-            content: serde_json::json!({"test": true}),
+            content: serde_json::json!({"temp": true}),
             schema: serde_json::json!({"type": "object"}),
             version: String::new(),
         };
         backend.put(key, &data, None).await.unwrap();
     }
 
-    // List all
-    let all_keys = backend.list(None).await.unwrap();
-    assert_eq!(all_keys.len(), 4);
+    // Verify all exist
+    for key in &configs {
+        assert!(backend.exists(key).await.unwrap());
+    }
 
-    // List with prefix
-    let app1_keys = backend.list(Some("app1")).await.unwrap();
-    assert_eq!(app1_keys.len(), 2);
-    assert!(app1_keys.iter().all(|k| k.application == "app1"));
+    // Delete entire environment
+    let deleted = backend
+        .delete_environment("test-app", "temp")
+        .await
+        .unwrap();
+    assert_eq!(deleted, 3);
 
-    let app2_dev_keys = backend.list(Some("app2/dev")).await.unwrap();
-    assert_eq!(app2_dev_keys.len(), 1);
-    assert_eq!(app2_dev_keys[0].application, "app2");
-    assert_eq!(app2_dev_keys[0].environment, "dev");
+    // Verify all are gone
+    for key in &configs {
+        assert!(!backend.exists(key).await.unwrap());
+    }
 }
 
 #[tokio::test]
 async fn test_get_nonexistent_config() {
-    let (backend, _dir) = create_test_backend().await;
+    let (backend, _dir) = create_test_backend();
 
     let key = ConfigKey::new("nonexistent", "app", "config");
     let result = backend.get(&key).await;
@@ -209,7 +189,7 @@ async fn test_get_nonexistent_config() {
 
 #[tokio::test]
 async fn test_get_nonexistent_version() {
-    let (backend, _dir) = create_test_backend().await;
+    let (backend, _dir) = create_test_backend();
 
     let key = ConfigKey::new("test-app", "dev", "config");
     let data = ConfigData {

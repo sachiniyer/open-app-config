@@ -28,20 +28,6 @@ pub struct GetConfigResponse {
     pub schema: serde_json::Value,
 }
 
-/// Response for listing configurations
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ListConfigsResponse {
-    pub configs: Vec<ConfigSummary>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigSummary {
-    pub application: String,
-    pub environment: String,
-    pub config_name: String,
-    pub current_version: String,
-}
-
 /// Response for listing versions
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ListVersionsResponse {
@@ -77,6 +63,7 @@ impl GetConfigResponse {
 }
 
 #[cfg(test)]
+#[cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -128,53 +115,6 @@ mod tests {
         assert_eq!(response.version, "v1");
         assert_eq!(response.content, data.content);
         assert_eq!(response.schema, data.schema);
-    }
-
-    #[test]
-    fn test_config_summary_serialization() {
-        let summary = ConfigSummary {
-            application: "myapp".to_string(),
-            environment: "prod".to_string(),
-            config_name: "database".to_string(),
-            current_version: "v3".to_string(),
-        };
-
-        let json = serde_json::to_string(&summary).unwrap();
-        let deserialized: ConfigSummary = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(deserialized.application, summary.application);
-        assert_eq!(deserialized.environment, summary.environment);
-        assert_eq!(deserialized.config_name, summary.config_name);
-        assert_eq!(deserialized.current_version, summary.current_version);
-    }
-
-    #[test]
-    fn test_list_configs_response() {
-        let configs = vec![
-            ConfigSummary {
-                application: "app1".to_string(),
-                environment: "dev".to_string(),
-                config_name: "config1".to_string(),
-                current_version: "v1".to_string(),
-            },
-            ConfigSummary {
-                application: "app2".to_string(),
-                environment: "prod".to_string(),
-                config_name: "config2".to_string(),
-                current_version: "v2".to_string(),
-            },
-        ];
-
-        let response = ListConfigsResponse {
-            configs: configs.clone(),
-        };
-
-        let json = serde_json::to_string(&response).unwrap();
-        let deserialized: ListConfigsResponse = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(deserialized.configs.len(), 2);
-        assert_eq!(deserialized.configs[0].application, "app1");
-        assert_eq!(deserialized.configs[1].application, "app2");
     }
 
     #[test]
