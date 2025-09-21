@@ -80,8 +80,7 @@ impl ConfigStorage for ObjectStoreBackend {
             }
             (Some(_), None) => {
                 return Err(StorageError::AlreadyExists(format!(
-                    "Configuration {} already exists. Use expected_version to update.",
-                    key
+                    "Configuration {key} already exists. Use expected_version to update."
                 ))
                 .into());
             }
@@ -119,11 +118,11 @@ impl ConfigStorage for ObjectStoreBackend {
         let metadata = self
             .read_metadata(key)
             .await?
-            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {}", key)))?;
+            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {key}")))?;
 
         if metadata.current_version.is_empty() {
             return Err(
-                StorageError::NotFound(format!("No versions found for config: {}", key)).into(),
+                StorageError::NotFound(format!("No versions found for config: {key}")).into(),
             );
         }
 
@@ -136,7 +135,7 @@ impl ConfigStorage for ObjectStoreBackend {
             .store
             .get(&data_path)
             .await
-            .with_context(|| format!("Failed to read data for {} @ {}", key, version))?;
+            .with_context(|| format!("Failed to read data for {key} @ {version}"))?;
         let content: serde_json::Value = serde_json::from_slice(&data_result.bytes().await?)?;
 
         let schema_path = self.version_path(key, version, "schema.json");
@@ -144,7 +143,7 @@ impl ConfigStorage for ObjectStoreBackend {
             .store
             .get(&schema_path)
             .await
-            .with_context(|| format!("Failed to read schema for {} @ {}", key, version))?;
+            .with_context(|| format!("Failed to read schema for {key} @ {version}"))?;
         let schema: serde_json::Value = serde_json::from_slice(&schema_result.bytes().await?)?;
 
         Ok(ConfigData {
@@ -158,7 +157,7 @@ impl ConfigStorage for ObjectStoreBackend {
         use futures::StreamExt;
 
         // List all files in the app/env prefix
-        let prefix = Path::from(format!("{}/{}", app, env));
+        let prefix = Path::from(format!("{app}/{env}"));
         let mut stream = self.store.list(Some(&prefix));
 
         let mut deleted_count = 0;
@@ -215,7 +214,7 @@ impl ConfigStorage for ObjectStoreBackend {
         let metadata = self
             .read_metadata(key)
             .await?
-            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {}", key)))?;
+            .ok_or_else(|| StorageError::NotFound(format!("Config not found: {key}")))?;
 
         Ok(metadata
             .versions

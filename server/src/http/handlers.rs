@@ -27,7 +27,7 @@ pub async fn get_config(
         .storage
         .get(&key)
         .await
-        .map_err(|e| super::error::ApiError::NotFound(format!("Config not found: {}", e)))?;
+        .map_err(|e| super::error::ApiError::NotFound(format!("Config not found: {e}")))?;
 
     Ok(Json(GetConfigResponse::from_data_and_key(data, &key)))
 }
@@ -47,7 +47,7 @@ pub async fn list_versions(
         .storage
         .list_versions(&key)
         .await
-        .map_err(|e| super::error::ApiError::NotFound(format!("Config not found: {}", e)))?;
+        .map_err(|e| super::error::ApiError::NotFound(format!("Config not found: {e}")))?;
 
     Ok(Json(ListVersionsResponse { versions }))
 }
@@ -71,7 +71,7 @@ pub async fn get_config_version(
         .get_version(&key, &version)
         .await
         .map_err(|e| {
-            super::error::ApiError::NotFound(format!("Config version not found: {}", e))
+            super::error::ApiError::NotFound(format!("Config version not found: {e}"))
         })?;
 
     Ok(Json(GetConfigResponse::from_data_and_key(data, &key)))
@@ -103,7 +103,7 @@ pub async fn put_config(
         .map_err(|e| super::error::ApiError::InternalError(e.to_string()))?;
 
     Ok(Json(SuccessResponse {
-        message: format!("Configuration {} updated successfully", key),
+        message: format!("Configuration {key} updated successfully"),
         version: Some(format!(
             "v{}",
             state
@@ -124,7 +124,7 @@ fn validate_request(request: &PutConfigRequest, schema: &serde_json::Value) -> A
 
     // Validate content against schema
     let compiled_schema = jsonschema::Validator::new(schema)
-        .map_err(|e| super::error::ApiError::BadRequest(format!("Invalid schema: {}", e)))?;
+        .map_err(|e| super::error::ApiError::BadRequest(format!("Invalid schema: {e}")))?;
 
     let validation_result = compiled_schema.validate(&request.content);
     if let Err(errors) = validation_result {
@@ -162,8 +162,7 @@ async fn resolve_schema(
             .map(|data| data.schema)
             .map_err(|e| {
                 super::error::ApiError::InternalError(format!(
-                    "Failed to fetch previous version: {}",
-                    e
+                    "Failed to fetch previous version: {e}"
                 ))
             });
     }
@@ -176,8 +175,7 @@ async fn resolve_schema(
             .map(|data| data.schema)
             .map_err(|e| {
                 super::error::ApiError::InternalError(format!(
-                    "Failed to fetch current version: {}",
-                    e
+                    "Failed to fetch current version: {e}"
                 ))
             });
     }
@@ -201,13 +199,12 @@ pub async fn delete_environment(
         .delete_environment(&app, &env)
         .await
         .map_err(|e| {
-            super::error::ApiError::InternalError(format!("Failed to delete environment: {}", e))
+            super::error::ApiError::InternalError(format!("Failed to delete environment: {e}"))
         })?;
 
     Ok(Json(SuccessResponse {
         message: format!(
-            "Deleted {} configurations for {}/{}",
-            deleted_count, app, env
+            "Deleted {deleted_count} configurations for {app}/{env}"
         ),
         version: None,
     }))
