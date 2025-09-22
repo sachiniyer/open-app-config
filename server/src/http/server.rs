@@ -1,5 +1,5 @@
 use anyhow::Result;
-use axum::{routing::get, Router};
+use axum::{Router, routing::get};
 use std::{net::SocketAddr, sync::Arc};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;

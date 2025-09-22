@@ -167,9 +167,7 @@ async fn test_delete_environment() -> anyhow::Result<()> {
     }
 
     // Delete entire environment
-    let deleted = backend
-        .delete_environment("test-app", "temp")
-        .await?;
+    let deleted = backend.delete_environment("test-app", "temp").await?;
     assert_eq!(deleted, 3);
 
     // Verify all are gone

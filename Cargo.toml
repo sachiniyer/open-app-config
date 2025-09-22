@@ -11,9 +11,8 @@ resolver = "2"
 unsafe_code = "deny"
 missing_docs = "allow"  # We can enable this later when we add documentation
 
-# Rust 2018 idioms and best practices
-rust_2018_idioms = { level = "deny", priority = -1 }
-rust_2024_compatibility = { level = "warn", priority = -1 }
+# Rust 2024 idioms and best practices
+rust_2024_compatibility = { level = "deny", priority = -1 }
 
 # All warnings as errors
 warnings = "deny"

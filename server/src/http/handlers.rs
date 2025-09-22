@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, State},
     Json,
+    extract::{Path, State},
 };
 use shared_types::ConfigKey;
 use std::sync::Arc;
@@ -70,9 +70,7 @@ pub async fn get_config_version(
         .storage
         .get_version(&key, &version)
         .await
-        .map_err(|e| {
-            super::error::ApiError::NotFound(format!("Config version not found: {e}"))
-        })?;
+        .map_err(|e| super::error::ApiError::NotFound(format!("Config version not found: {e}")))?;
 
     Ok(Json(GetConfigResponse::from_data_and_key(data, &key)))
 }
@@ -203,9 +201,7 @@ pub async fn delete_environment(
         })?;
 
     Ok(Json(SuccessResponse {
-        message: format!(
-            "Deleted {deleted_count} configurations for {app}/{env}"
-        ),
+        message: format!("Deleted {deleted_count} configurations for {app}/{env}"),
         version: None,
     }))
 }

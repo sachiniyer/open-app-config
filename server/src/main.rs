@@ -3,7 +3,7 @@ mod storage;
 
 use anyhow::Result;
 use std::{net::SocketAddr, sync::Arc};
-use tracing::{info, Level};
+use tracing::{Level, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {

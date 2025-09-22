@@ -1,8 +1,8 @@
 use axum::{
+    Router,
     body::Body,
     http::{Request, StatusCode},
     routing::{delete, get, put},
-    Router,
 };
 use server::http::dto::*;
 use server::http::handlers;
@@ -45,17 +45,12 @@ async fn test_health_check() -> anyhow::Result<()> {
     let (app, _dir) = create_test_app()?;
 
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/health")
-                .body(Body::empty())?,
-        )
+        .oneshot(Request::builder().uri("/health").body(Body::empty())?)
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await?;
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
     let json: serde_json::Value = serde_json::from_slice(&body)?;
 
     assert_eq!(json["status"], "healthy");
@@ -99,8 +94,7 @@ async fn test_put_and_get_config() -> anyhow::Result<()> {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await?;
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
     let config: GetConfigResponse = serde_json::from_slice(&body)?;
 
     assert_eq!(config.application, "myapp");
@@ -108,7 +102,12 @@ async fn test_put_and_get_config() -> anyhow::Result<()> {
     assert_eq!(config.config_name, "database");
     assert_eq!(config.version, "v1");
     assert_eq!(config.content, put_request.content);
-    assert_eq!(config.schema, put_request.schema.ok_or(anyhow::anyhow!("missing schema"))?);
+    assert_eq!(
+        config.schema,
+        put_request
+            .schema
+            .ok_or(anyhow::anyhow!("missing schema"))?
+    );
     Ok(())
 }
 
@@ -241,8 +240,7 @@ async fn test_list_versions() -> anyhow::Result<()> {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await?;
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
     let versions: ListVersionsResponse = serde_json::from_slice(&body)?;
 
     assert_eq!(versions.versions.len(), 3);
@@ -304,8 +302,7 @@ async fn test_get_specific_version() -> anyhow::Result<()> {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await?;
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
     let config: GetConfigResponse = serde_json::from_slice(&body)?;
     assert_eq!(config.content, v1_content);
 
@@ -320,8 +317,7 @@ async fn test_get_specific_version() -> anyhow::Result<()> {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await?;
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
     let config: GetConfigResponse = serde_json::from_slice(&body)?;
     assert_eq!(config.content, v2_content);
     Ok(())

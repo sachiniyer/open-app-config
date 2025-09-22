@@ -62,7 +62,10 @@ async fn test_get_config_not_found() -> anyhow::Result<()> {
     let result = client.get_config(&key).await;
 
     assert!(result.is_err());
-    let err_msg = result.err().ok_or(anyhow::anyhow!("expected error"))?.to_string();
+    let err_msg = result
+        .err()
+        .ok_or(anyhow::anyhow!("expected error"))?
+        .to_string();
     assert!(err_msg.contains("not found"));
     Ok(())
 }
@@ -88,9 +91,7 @@ async fn test_put_config() -> anyhow::Result<()> {
     let content = json!({"url": "https://api.example.com"});
     let schema = json!({"type": "object"});
 
-    let version = client
-        .put_config(&key, content, Some(schema), None)
-        .await?;
+    let version = client.put_config(&key, content, Some(schema), None).await?;
     assert_eq!(version, "v1");
     Ok(())
 }

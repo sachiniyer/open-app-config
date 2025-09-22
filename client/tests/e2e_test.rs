@@ -54,7 +54,8 @@ impl TestServer {
         let server_url = format!("http://localhost:{port}");
         let client = ConfigClient::new(&server_url)?;
 
-        for i in 0..20 {  // Try for up to 10 seconds
+        for i in 0..20 {
+            // Try for up to 10 seconds
             // Check if process has exited with error
             match process.try_wait() {
                 Ok(Some(status)) => {
@@ -64,7 +65,11 @@ impl TestServer {
                     // Process is still running, check if it's ready
                     if client.health_check().await.unwrap_or(false) {
                         println!("Server is ready after {} ms", i * 500);
-                        return Ok(TestServer { process, port, storage_path });
+                        return Ok(TestServer {
+                            process,
+                            port,
+                            storage_path,
+                        });
                     }
                 }
                 Err(e) => anyhow::bail!("Failed to check server status: {e}"),
