@@ -137,7 +137,7 @@ fn validate_request(request: &PutConfigRequest, schema: &serde_json::Value) -> A
                 } else {
                     path
                 };
-                format!("{}: {}", path_str, e)
+                format!("{path_str}: {e}")
             })
             .collect();
 
@@ -148,8 +148,7 @@ fn validate_request(request: &PutConfigRequest, schema: &serde_json::Value) -> A
         }
 
         return Err(super::error::ApiError::BadRequest(format!(
-            "Content validation failed: {}",
-            message
+            "Content validation failed: {message}"
         )));
     }
 

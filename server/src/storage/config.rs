@@ -69,8 +69,7 @@ impl StorageConfig {
                 ))
             }
             _ => anyhow::bail!(
-                "Unknown storage backend: {}. Must be 'local' or 's3'",
-                backend
+                "Unknown storage backend: {backend}. Must be 'local' or 's3'"
             ),
         }
     }
