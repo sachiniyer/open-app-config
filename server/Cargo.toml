@@ -36,6 +36,10 @@ tokio-test = "0.4"
 tracing-subscriber = { workspace = true }
 tempfile = "3.8"
 tower = { version = "0.5", features = ["util"] }
+testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["minio"] }
+aws-config = "1.5"
+aws-sdk-s3 = "1.61"
 
 [lints]
 workspace = true

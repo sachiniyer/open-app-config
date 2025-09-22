@@ -18,14 +18,15 @@ async fn main() -> Result<()> {
 
     info!("Starting Open App Config server");
 
-    // Initialize storage backend
-    let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./data".to_string());
-    info!("Using storage path: {}", storage_path);
+    // Initialize storage backend from environment
+    let storage_config = storage::StorageConfig::from_env()?;
+    info!("Using storage backend: {:?}", storage_config);
 
-    // Create directory if it doesn't exist
-    std::fs::create_dir_all(&storage_path)?;
+    // Create local directory if using local storage
+    if let storage::StorageConfig::Local { ref path } = storage_config {
+        std::fs::create_dir_all(path)?;
+    }
 
-    let storage_config = storage::StorageConfig::local(storage_path);
     let storage = storage::ObjectStoreBackend::from_config(storage_config)?;
     let storage: Arc<dyn storage::ConfigStorage> = Arc::new(storage);
 

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use object_store::aws::AmazonS3Builder;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path;
 use object_store::{ObjectStore, PutPayload};
@@ -19,6 +20,36 @@ impl ObjectStoreBackend {
     pub fn from_config(config: StorageConfig) -> Result<Self> {
         let store: Arc<dyn ObjectStore> = match config {
             StorageConfig::Local { path } => Arc::new(LocalFileSystem::new_with_prefix(path)?),
+            StorageConfig::S3 {
+                bucket,
+                region,
+                endpoint,
+                access_key_id,
+                secret_access_key,
+                allow_http,
+            } => {
+                let mut builder = AmazonS3Builder::new()
+                    .with_bucket_name(bucket)
+                    .with_allow_http(allow_http);
+
+                if let Some(region) = region {
+                    builder = builder.with_region(region);
+                }
+
+                if let Some(endpoint) = endpoint {
+                    builder = builder.with_endpoint(endpoint);
+                }
+
+                if let Some(access_key) = access_key_id {
+                    builder = builder.with_access_key_id(access_key);
+                }
+
+                if let Some(secret_key) = secret_access_key {
+                    builder = builder.with_secret_access_key(secret_key);
+                }
+
+                Arc::new(builder.build()?)
+            }
         };
         Ok(Self { store })
     }
