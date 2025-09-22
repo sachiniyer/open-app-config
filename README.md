@@ -14,7 +14,7 @@ The core feature set:
 ### TODO:
 - diff the schemas and configs instead of replicating them each time.
 - other storage backends (postgres :eyes:)
--
+- client libs in other languages
 
 # Alternatives (you should use these instead of this package)
 1. AWS AppConfig
