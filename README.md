@@ -12,6 +12,7 @@ Application Configuration Services are great, but I can't find any independent a
 - diff the schemas and configs instead of replicating them each time.
 - other storage backends (postgres :eyes:)
 - client libs in other languages (nodejs :eyes:)
+- package this up and publish it
 
 # Alternatives (you should use these instead of this package)
 1. AWS AppConfig
