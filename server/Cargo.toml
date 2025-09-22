@@ -29,6 +29,7 @@ bytes = "1.5"
 uuid = { version = "1.7", features = ["v4", "serde"] }
 futures = "0.3"
 jsonschema = "0.24"
+dotenvy = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -7,6 +7,8 @@ use tracing::{Level, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _ = dotenvy::dotenv();
+
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(

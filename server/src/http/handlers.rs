@@ -120,18 +120,36 @@ fn validate_request(request: &PutConfigRequest, schema: &serde_json::Value) -> A
         ));
     }
 
-    // Validate content against schema
+    // The jsonschema crate automatically validates that the schema is valid when compiling
+    // It will return an error if the schema itself is invalid
     let compiled_schema = jsonschema::Validator::new(schema)
-        .map_err(|e| super::error::ApiError::BadRequest(format!("Invalid schema: {e}")))?;
+        .map_err(|e| super::error::ApiError::BadRequest(format!("Invalid JSON Schema: {e}")))?;
 
+    // Validate content against schema
     let validation_result = compiled_schema.validate(&request.content);
     if let Err(errors) = validation_result {
         let error_messages: Vec<String> = errors
-            .map(|e| format!("{}: {}", e.instance_path, e))
+            .take(10) // Limit to first 10 errors to avoid huge error messages
+            .map(|e| {
+                let path = e.instance_path.to_string();
+                let path_str = if path.is_empty() || path == "/" {
+                    "root".to_string()
+                } else {
+                    path
+                };
+                format!("{}: {}", path_str, e)
+            })
             .collect();
+
+        let error_count = error_messages.len();
+        let mut message = error_messages.join("; ");
+        if error_count == 10 {
+            message.push_str("; ... and more errors");
+        }
+
         return Err(super::error::ApiError::BadRequest(format!(
-            "Validation failed: {}",
-            error_messages.join(", ")
+            "Content validation failed: {}",
+            message
         )));
     }
 
