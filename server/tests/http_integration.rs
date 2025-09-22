@@ -1,5 +1,3 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-
 use axum::{
     body::Body,
     http::{Request, StatusCode},
@@ -14,12 +12,12 @@ use std::sync::Arc;
 use tempfile::TempDir;
 use tower::util::ServiceExt;
 
-fn create_test_app() -> (Router, TempDir) {
-    let temp_dir = TempDir::new().unwrap();
+fn create_test_app() -> anyhow::Result<(Router, TempDir)> {
+    let temp_dir = TempDir::new()?;
     let config = StorageConfig::Local {
         path: temp_dir.path().to_path_buf(),
     };
-    let storage = ObjectStoreBackend::from_config(config).unwrap();
+    let storage = ObjectStoreBackend::from_config(config)?;
     let state = Arc::new(AppState {
         storage: Arc::new(storage),
     });
@@ -39,38 +37,36 @@ fn create_test_app() -> (Router, TempDir) {
         .route("/health", get(handlers::health_check))
         .with_state(state);
 
-    (app, temp_dir)
+    Ok((app, temp_dir))
 }
 
 #[tokio::test]
-async fn test_health_check() {
-    let (app, _dir) = create_test_app();
+async fn test_health_check() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/health")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        .await?;
+    let json: serde_json::Value = serde_json::from_slice(&body)?;
 
     assert_eq!(json["status"], "healthy");
     assert_eq!(json["service"], "open-app-config");
     assert!(json.get("timestamp").is_some());
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_put_and_get_config() {
-    let (app, _dir) = create_test_app();
+async fn test_put_and_get_config() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     // Create a config
     let put_request = PutConfigRequest {
@@ -86,11 +82,9 @@ async fn test_put_and_get_config() {
                 .method("PUT")
                 .uri("/configs/myapp/dev/database")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&put_request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&put_request)?))?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -99,30 +93,28 @@ async fn test_put_and_get_config() {
         .oneshot(
             Request::builder()
                 .uri("/configs/myapp/dev/database")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let config: GetConfigResponse = serde_json::from_slice(&body).unwrap();
+        .await?;
+    let config: GetConfigResponse = serde_json::from_slice(&body)?;
 
     assert_eq!(config.application, "myapp");
     assert_eq!(config.environment, "dev");
     assert_eq!(config.config_name, "database");
     assert_eq!(config.version, "v1");
     assert_eq!(config.content, put_request.content);
-    assert_eq!(config.schema, put_request.schema.unwrap());
+    assert_eq!(config.schema, put_request.schema.ok_or(anyhow::anyhow!("missing schema"))?);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_update_config_with_optimistic_locking() {
-    let (app, _dir) = create_test_app();
+async fn test_update_config_with_optimistic_locking() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     // Create initial version
     let put_request = PutConfigRequest {
@@ -137,11 +129,9 @@ async fn test_update_config_with_optimistic_locking() {
                 .method("PUT")
                 .uri("/configs/app/prod/api")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&put_request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&put_request)?))?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     // Update with correct version
     let update_request = PutConfigRequest {
@@ -157,11 +147,9 @@ async fn test_update_config_with_optimistic_locking() {
                 .method("PUT")
                 .uri("/configs/app/prod/api")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&update_request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&update_request)?))?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -178,18 +166,17 @@ async fn test_update_config_with_optimistic_locking() {
                 .method("PUT")
                 .uri("/configs/app/prod/api")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&bad_update).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&bad_update)?))?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_schema_required_for_first_version() {
-    let (app, _dir) = create_test_app();
+async fn test_schema_required_for_first_version() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     // Try to create without schema
     let put_request = PutConfigRequest {
@@ -204,18 +191,17 @@ async fn test_schema_required_for_first_version() {
                 .method("PUT")
                 .uri("/configs/app/dev/test")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&put_request).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&put_request)?))?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_list_versions() {
-    let (app, _dir) = create_test_app();
+async fn test_list_versions() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     // Create multiple versions
     for i in 1..=3 {
@@ -239,11 +225,9 @@ async fn test_list_versions() {
                     .method("PUT")
                     .uri("/configs/app/staging/multi")
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&put_request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&put_request)?))?,
             )
-            .await
-            .unwrap();
+            .await?;
     }
 
     // List versions
@@ -251,28 +235,26 @@ async fn test_list_versions() {
         .oneshot(
             Request::builder()
                 .uri("/configs/app/staging/multi/versions")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let versions: ListVersionsResponse = serde_json::from_slice(&body).unwrap();
+        .await?;
+    let versions: ListVersionsResponse = serde_json::from_slice(&body)?;
 
     assert_eq!(versions.versions.len(), 3);
     assert_eq!(versions.versions[0].version, "v1");
     assert_eq!(versions.versions[1].version, "v2");
     assert_eq!(versions.versions[2].version, "v3");
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_get_specific_version() {
-    let (app, _dir) = create_test_app();
+async fn test_get_specific_version() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     // Create two versions
     let v1_content = serde_json::json!({"feature": "a"});
@@ -290,11 +272,9 @@ async fn test_get_specific_version() {
                 .method("PUT")
                 .uri("/configs/app/dev/versioned")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&put_request1).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&put_request1)?))?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     let put_request2 = PutConfigRequest {
         content: v2_content.clone(),
@@ -308,11 +288,9 @@ async fn test_get_specific_version() {
                 .method("PUT")
                 .uri("/configs/app/dev/versioned")
                 .header("content-type", "application/json")
-                .body(Body::from(serde_json::to_string(&put_request2).unwrap()))
-                .unwrap(),
+                .body(Body::from(serde_json::to_string(&put_request2)?))?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     // Get v1
     let response = app
@@ -320,18 +298,15 @@ async fn test_get_specific_version() {
         .oneshot(
             Request::builder()
                 .uri("/configs/app/dev/versioned/versions/v1")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let config: GetConfigResponse = serde_json::from_slice(&body).unwrap();
+        .await?;
+    let config: GetConfigResponse = serde_json::from_slice(&body)?;
     assert_eq!(config.content, v1_content);
 
     // Get v2
@@ -339,24 +314,22 @@ async fn test_get_specific_version() {
         .oneshot(
             Request::builder()
                 .uri("/configs/app/dev/versioned/versions/v2")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
-        .await
-        .unwrap();
-    let config: GetConfigResponse = serde_json::from_slice(&body).unwrap();
+        .await?;
+    let config: GetConfigResponse = serde_json::from_slice(&body)?;
     assert_eq!(config.content, v2_content);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_delete_environment() {
-    let (app, _dir) = create_test_app();
+async fn test_delete_environment() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     // Create some configs in an environment
     let put_request = PutConfigRequest {
@@ -373,11 +346,9 @@ async fn test_delete_environment() {
                     .method("PUT")
                     .uri(format!("/configs/app/temp/{config_name}"))
                     .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_string(&put_request).unwrap()))
-                    .unwrap(),
+                    .body(Body::from(serde_json::to_string(&put_request)?))?,
             )
-            .await
-            .unwrap();
+            .await?;
     }
 
     // Delete the entire environment
@@ -387,11 +358,9 @@ async fn test_delete_environment() {
             Request::builder()
                 .method("DELETE")
                 .uri("/configs/app/temp")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
 
@@ -400,28 +369,26 @@ async fn test_delete_environment() {
         .oneshot(
             Request::builder()
                 .uri("/configs/app/temp/config1")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_get_nonexistent_config() {
-    let (app, _dir) = create_test_app();
+async fn test_get_nonexistent_config() -> anyhow::Result<()> {
+    let (app, _dir) = create_test_app()?;
 
     let response = app
         .oneshot(
             Request::builder()
                 .uri("/configs/nonexistent/app/config")
-                .body(Body::empty())
-                .unwrap(),
+                .body(Body::empty())?,
         )
-        .await
-        .unwrap();
+        .await?;
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    Ok(())
 }

@@ -78,41 +78,44 @@ mod tests {
     }
 
     #[test]
-    fn test_config_key_serialization() {
+    fn test_config_key_serialization() -> Result<(), Box<dyn std::error::Error>> {
         let key = ConfigKey::new("app", "dev", "config");
-        let json = serde_json::to_string(&key).unwrap();
-        let deserialized: ConfigKey = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&key)?;
+        let deserialized: ConfigKey = serde_json::from_str(&json)?;
         assert_eq!(key, deserialized);
+        Ok(())
     }
 
     #[test]
-    fn test_config_data_serialization() {
+    fn test_config_data_serialization() -> Result<(), Box<dyn std::error::Error>> {
         let data = ConfigData {
             content: json!({"host": "localhost", "port": 5432}),
             schema: json!({"type": "object"}),
             version: "v1".to_string(),
         };
 
-        let json = serde_json::to_string(&data).unwrap();
-        let deserialized: ConfigData = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&data)?;
+        let deserialized: ConfigData = serde_json::from_str(&json)?;
 
         assert_eq!(data.content, deserialized.content);
         assert_eq!(data.schema, deserialized.schema);
         assert_eq!(data.version, deserialized.version);
+        Ok(())
     }
 
     #[test]
-    fn test_version_info_serialization() {
+    fn test_version_info_serialization() -> Result<(), Box<dyn std::error::Error>> {
         let now = chrono::Utc::now();
         let version = VersionInfo {
             version: "v2".to_string(),
             timestamp: now,
         };
 
-        let json = serde_json::to_string(&version).unwrap();
-        let deserialized: VersionInfo = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&version)?;
+        let deserialized: VersionInfo = serde_json::from_str(&json)?;
 
         assert_eq!(version.version, deserialized.version);
         assert_eq!(version.timestamp, deserialized.timestamp);
+        Ok(())
     }
 }

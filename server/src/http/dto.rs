@@ -63,39 +63,40 @@ impl GetConfigResponse {
 }
 
 #[cfg(test)]
-#[cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 mod tests {
     use super::*;
     use serde_json::json;
 
     #[test]
-    fn test_put_config_request_serialization() {
+    fn test_put_config_request_serialization() -> Result<(), Box<dyn std::error::Error>> {
         let request = PutConfigRequest {
             content: json!({"key": "value"}),
             schema: Some(json!({"type": "object"})),
             expected_version: Some("v1".to_string()),
         };
 
-        let json = serde_json::to_string(&request).unwrap();
-        let deserialized: PutConfigRequest = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&request)?;
+        let deserialized: PutConfigRequest = serde_json::from_str(&json)?;
 
         assert_eq!(deserialized.content, request.content);
         assert_eq!(deserialized.schema, request.schema);
         assert_eq!(deserialized.expected_version, request.expected_version);
+        Ok(())
     }
 
     #[test]
-    fn test_put_config_request_with_null_schema() {
+    fn test_put_config_request_with_null_schema() -> Result<(), Box<dyn std::error::Error>> {
         let json = r#"{
             "content": {"key": "value"},
             "schema": null,
             "expected_version": "v2"
         }"#;
 
-        let request: PutConfigRequest = serde_json::from_str(json).unwrap();
+        let request: PutConfigRequest = serde_json::from_str(json)?;
         assert_eq!(request.content, json!({"key": "value"}));
         assert_eq!(request.schema, None);
         assert_eq!(request.expected_version, Some("v2".to_string()));
+        Ok(())
     }
 
     #[test]
@@ -118,30 +119,32 @@ mod tests {
     }
 
     #[test]
-    fn test_success_response() {
+    fn test_success_response() -> Result<(), Box<dyn std::error::Error>> {
         let response = SuccessResponse {
             message: "Operation successful".to_string(),
             version: Some("v5".to_string()),
         };
 
-        let json = serde_json::to_string(&response).unwrap();
-        let deserialized: SuccessResponse = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&response)?;
+        let deserialized: SuccessResponse = serde_json::from_str(&json)?;
 
         assert_eq!(deserialized.message, response.message);
         assert_eq!(deserialized.version, response.version);
+        Ok(())
     }
 
     #[test]
-    fn test_error_response() {
+    fn test_error_response() -> Result<(), Box<dyn std::error::Error>> {
         let response = ErrorResponse {
             error: "Not Found".to_string(),
             details: Some("Configuration not found".to_string()),
         };
 
-        let json = serde_json::to_string(&response).unwrap();
-        let deserialized: ErrorResponse = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&response)?;
+        let deserialized: ErrorResponse = serde_json::from_str(&json)?;
 
         assert_eq!(deserialized.error, response.error);
         assert_eq!(deserialized.details, response.details);
+        Ok(())
     }
 }

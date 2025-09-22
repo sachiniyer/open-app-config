@@ -69,7 +69,7 @@ impl ConfigClient {
         let response = self.client.get(&url).send().await?;
 
         if response.status() == StatusCode::NOT_FOUND {
-            anyhow::bail!("Configuration not found: {}", key);
+            anyhow::bail!("Configuration not found: {key}");
         }
 
         response.error_for_status_ref()?;
@@ -139,7 +139,7 @@ impl ConfigClient {
         let response = self.client.get(&url).send().await?;
 
         if response.status() == StatusCode::NOT_FOUND {
-            anyhow::bail!("Configuration not found: {}", key);
+            anyhow::bail!("Configuration not found: {key}");
         }
 
         response.error_for_status_ref()?;
@@ -159,7 +159,7 @@ impl ConfigClient {
         let response = self.client.get(&url).send().await?;
 
         if response.status() == StatusCode::NOT_FOUND {
-            anyhow::bail!("Configuration version not found: {} @ {}", key, version);
+            anyhow::bail!("Configuration version not found: {key} @ {version}");
         }
 
         response.error_for_status_ref()?;
@@ -181,26 +181,26 @@ impl ConfigClient {
 }
 
 #[cfg(test)]
-#[cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_client_creation() {
-        let client = ConfigClient::new("http://localhost:3000").expect("Failed to create client");
+    fn test_client_creation() -> Result<()> {
+        let client = ConfigClient::new("http://localhost:3000")?;
         assert_eq!(client.base_url, "http://localhost:3000");
 
-        let client = ConfigClient::new("http://localhost:3000/").expect("Failed to create client");
+        let client = ConfigClient::new("http://localhost:3000/")?;
         assert_eq!(client.base_url, "http://localhost:3000");
+        Ok(())
     }
 
     #[test]
-    fn test_client_url_formatting() {
-        let client = ConfigClient::new("http://localhost:3000").expect("Failed to create client");
+    fn test_client_url_formatting() -> Result<()> {
+        let client = ConfigClient::new("http://localhost:3000")?;
         assert_eq!(client.base_url, "http://localhost:3000");
 
-        let client =
-            ConfigClient::new("http://localhost:3000///").expect("Failed to create client");
+        let client = ConfigClient::new("http://localhost:3000///")?;
         assert_eq!(client.base_url, "http://localhost:3000");
+        Ok(())
     }
 }

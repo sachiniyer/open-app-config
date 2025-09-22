@@ -1,46 +1,81 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-
 use anyhow::Result;
 use client::ConfigClient;
 use serde_json::json;
 use shared_types::ConfigKey;
-use std::process::{Child, Command};
+use std::net::TcpListener;
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
-use tokio::time::sleep;
 
 struct TestServer {
     process: Child,
     port: u16,
+    #[allow(dead_code)]
+    storage_path: String,
 }
 
 impl TestServer {
-    fn start() -> Result<Self> {
-        let port = 3456;
-        let _ = std::fs::remove_dir_all("/tmp/open-app-config-test");
+    async fn start() -> Result<Self> {
+        // Find an available port
+        let port = {
+            let listener = TcpListener::bind("127.0.0.1:0")?;
+            listener.local_addr()?.port()
+        };
 
-        Command::new("cargo")
+        // Use a unique storage path for this test instance
+        let storage_path = format!("/tmp/open-app-config-test-{port}");
+        let _ = std::fs::remove_dir_all(&storage_path);
+
+        // Build the server first
+        println!("Building server...");
+        let output = Command::new("cargo")
             .args(["build", "--bin", "server", "-p", "server"])
             .output()?;
 
+        if !output.status.success() {
+            anyhow::bail!(
+                "Failed to build server: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        println!("Starting server on port {port}...");
         let mut process = Command::new("cargo")
             .args(["run", "--bin", "server", "-p", "server"])
             .env("HOST", "127.0.0.1")
             .env("PORT", port.to_string())
-            .env("STORAGE_PATH", "/tmp/open-app-config-test")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .env("STORAGE_PATH", &storage_path)
+            .env("RUST_LOG", "info")
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()?;
 
-        thread::sleep(Duration::from_secs(3));
+        // Give the server time to start and verify it's running
+        let server_url = format!("http://localhost:{port}");
+        let client = ConfigClient::new(&server_url)?;
 
-        match process.try_wait() {
-            Ok(Some(status)) => anyhow::bail!("Server failed to start with status: {:?}", status),
-            Ok(None) => {}
-            Err(e) => anyhow::bail!("Failed to check server status: {}", e),
+        for i in 0..20 {  // Try for up to 10 seconds
+            // Check if process has exited with error
+            match process.try_wait() {
+                Ok(Some(status)) => {
+                    anyhow::bail!("Server exited early with status: {status:?}");
+                }
+                Ok(None) => {
+                    // Process is still running, check if it's ready
+                    if client.health_check().await.unwrap_or(false) {
+                        println!("Server is ready after {} ms", i * 500);
+                        return Ok(TestServer { process, port, storage_path });
+                    }
+                }
+                Err(e) => anyhow::bail!("Failed to check server status: {e}"),
+            }
+
+            thread::sleep(Duration::from_millis(500));
         }
 
-        Ok(TestServer { process, port })
+        // If we get here, server didn't become ready in time
+        let _ = process.kill();
+        anyhow::bail!("Server failed to become ready after 10 seconds")
     }
 
     fn url(&self) -> String {
@@ -52,21 +87,14 @@ impl Drop for TestServer {
     fn drop(&mut self) {
         let _ = self.process.kill();
         let _ = self.process.wait();
-        let _ = std::fs::remove_dir_all("/tmp/open-app-config-test");
+        let _ = std::fs::remove_dir_all(&self.storage_path);
     }
 }
 
 #[tokio::test]
 async fn test_e2e_basic_workflow() -> Result<()> {
-    let server = TestServer::start()?;
+    let server = TestServer::start().await?;
     let client = ConfigClient::new(server.url())?;
-
-    for _ in 0..10 {
-        if client.health_check().await.unwrap_or(false) {
-            break;
-        }
-        sleep(Duration::from_millis(500)).await;
-    }
 
     let key = ConfigKey::new("myapp", "production", "database");
     let content = json!({
@@ -93,7 +121,6 @@ async fn test_e2e_basic_workflow() -> Result<()> {
     let retrieved = client.get_config(&key).await?;
     assert_eq!(retrieved.content, content);
     assert_eq!(retrieved.schema, schema);
-    // Cache verification removed - cache is now internal
 
     // Update config
     let updated_content = json!({
@@ -106,8 +133,6 @@ async fn test_e2e_basic_workflow() -> Result<()> {
         .await?;
     assert!(!version2.is_empty());
 
-    // Cache invalidation is automatic after put
-
     // Refresh to get latest
     let refreshed = client.refresh(&key).await?;
     assert_eq!(refreshed.content, updated_content);
@@ -118,6 +143,8 @@ async fn test_e2e_basic_workflow() -> Result<()> {
 
     // Delete entire environment
     client.delete_environment("myapp", "production").await?;
+
+    // Verify deletion
     assert!(client.get_config(&key).await.is_err());
 
     Ok(())
@@ -125,15 +152,8 @@ async fn test_e2e_basic_workflow() -> Result<()> {
 
 #[tokio::test]
 async fn test_caching_behavior() -> Result<()> {
-    let server = TestServer::start()?;
+    let server = TestServer::start().await?;
     let client = ConfigClient::new(server.url())?;
-
-    for _ in 0..10 {
-        if client.health_check().await.unwrap_or(false) {
-            break;
-        }
-        sleep(Duration::from_millis(500)).await;
-    }
 
     let key = ConfigKey::new("cachetest", "dev", "config");
     let content = json!({"cached": true});
@@ -158,22 +178,15 @@ async fn test_caching_behavior() -> Result<()> {
     let refreshed = client.refresh(&key).await?;
     assert_eq!(refreshed.content, content);
 
-    // Changed to delete entire environment since individual delete was removed
-    client.delete_environment("myapp", "development").await?;
+    // Delete the correct environment
+    client.delete_environment("cachetest", "dev").await?;
     Ok(())
 }
 
 #[tokio::test]
 async fn test_e2e_error_handling() -> Result<()> {
-    let server = TestServer::start()?;
+    let server = TestServer::start().await?;
     let client = ConfigClient::new(server.url())?;
-
-    for _ in 0..10 {
-        if client.health_check().await.unwrap_or(false) {
-            break;
-        }
-        sleep(Duration::from_millis(500)).await;
-    }
 
     let key = ConfigKey::new("errortest", "dev", "config");
 
@@ -182,29 +195,35 @@ async fn test_e2e_error_handling() -> Result<()> {
 
     // Create config without schema fails
     let content = json!({"valid": true});
-    assert!(client
-        .put_config(&key, content.clone(), None, None)
-        .await
-        .is_err());
+    assert!(
+        client
+            .put_config(&key, content.clone(), None, None)
+            .await
+            .is_err()
+    );
 
     // Create config with invalid content (not object)
     let invalid_content = json!("just a string");
     let schema = json!({"type": "object"});
-    assert!(client
-        .put_config(&key, invalid_content, Some(schema.clone()), None)
-        .await
-        .is_err());
+    assert!(
+        client
+            .put_config(&key, invalid_content, Some(schema.clone()), None)
+            .await
+            .is_err()
+    );
 
     // Create properly then test version conflict
     client
         .put_config(&key, content.clone(), Some(schema), None)
         .await?;
-    assert!(client
-        .put_config(&key, content, None, Some("wrong-version".to_string()))
-        .await
-        .is_err());
+    assert!(
+        client
+            .put_config(&key, content, None, Some("wrong-version".to_string()))
+            .await
+            .is_err()
+    );
 
-    // Changed to delete entire environment since individual delete was removed
-    client.delete_environment("myapp", "production").await?;
+    // Delete the test environment
+    client.delete_environment("errortest", "dev").await?;
     Ok(())
 }

@@ -23,14 +23,14 @@ impl ObjectStoreBackend {
         Ok(Self { store })
     }
 
-    fn config_path(&self, key: &ConfigKey, file: &str) -> Path {
+    fn config_path(key: &ConfigKey, file: &str) -> Path {
         Path::from(format!(
             "{}/{}/{}/{}",
             key.application, key.environment, key.config_name, file
         ))
     }
 
-    fn version_path(&self, key: &ConfigKey, version: &str, file: &str) -> Path {
+    fn version_path(key: &ConfigKey, version: &str, file: &str) -> Path {
         Path::from(format!(
             "{}/{}/{}/versions/{}/{}",
             key.application, key.environment, key.config_name, version, file
@@ -38,7 +38,7 @@ impl ObjectStoreBackend {
     }
 
     async fn read_metadata(&self, key: &ConfigKey) -> Result<Option<Metadata>> {
-        let path = self.config_path(key, "metadata.json");
+        let path = Self::config_path(key, "metadata.json");
         match self.store.get(&path).await {
             Ok(result) => {
                 let bytes = result.bytes().await?;
@@ -51,7 +51,7 @@ impl ObjectStoreBackend {
     }
 
     async fn write_metadata(&self, key: &ConfigKey, metadata: &Metadata) -> Result<()> {
-        let path = self.config_path(key, "metadata.json");
+        let path = Self::config_path(key, "metadata.json");
         let json = serde_json::to_vec_pretty(metadata)?;
         self.store.put(&path, PutPayload::from(json)).await?;
         Ok(())
@@ -96,13 +96,13 @@ impl ConfigStorage for ObjectStoreBackend {
         let mut metadata = existing_metadata.unwrap_or_else(Metadata::new);
         let version = format!("v{}", metadata.next_version_number());
 
-        let data_path = self.version_path(key, &version, "data.json");
+        let data_path = Self::version_path(key, &version, "data.json");
         let data_json = serde_json::to_vec_pretty(&data.content)?;
         self.store
             .put(&data_path, PutPayload::from(data_json))
             .await?;
 
-        let schema_path = self.version_path(key, &version, "schema.json");
+        let schema_path = Self::version_path(key, &version, "schema.json");
         let schema_json = serde_json::to_vec_pretty(&data.schema)?;
         self.store
             .put(&schema_path, PutPayload::from(schema_json))
@@ -130,7 +130,7 @@ impl ConfigStorage for ObjectStoreBackend {
     }
 
     async fn get_version(&self, key: &ConfigKey, version: &str) -> Result<ConfigData> {
-        let data_path = self.version_path(key, version, "data.json");
+        let data_path = Self::version_path(key, version, "data.json");
         let data_result = self
             .store
             .get(&data_path)
@@ -138,7 +138,7 @@ impl ConfigStorage for ObjectStoreBackend {
             .with_context(|| format!("Failed to read data for {key} @ {version}"))?;
         let content: serde_json::Value = serde_json::from_slice(&data_result.bytes().await?)?;
 
-        let schema_path = self.version_path(key, version, "schema.json");
+        let schema_path = Self::version_path(key, version, "schema.json");
         let schema_result = self
             .store
             .get(&schema_path)
@@ -175,26 +175,22 @@ impl ConfigStorage for ObjectStoreBackend {
         for config_name in configs_found {
             let key = ConfigKey::new(app.to_string(), env.to_string(), config_name);
 
-            let metadata_result = self.read_metadata(&key).await;
-            #[allow(clippy::single_match)]
-            match metadata_result {
-                Ok(Some(metadata)) => {
-                    // Delete all version files
-                    for version_meta in &metadata.versions {
-                        let data_path = self.version_path(&key, &version_meta.version, "data.json");
-                        let _ = self.store.delete(&data_path).await;
-                        let schema_path =
-                            self.version_path(&key, &version_meta.version, "schema.json");
-                        let _ = self.store.delete(&schema_path).await;
-                    }
-
-                    // Delete metadata
-                    let metadata_path = self.config_path(&key, "metadata.json");
-                    let _ = self.store.delete(&metadata_path).await;
-
-                    deleted_count += 1;
+            let metadata_opt = self.read_metadata(&key).await.ok().flatten();
+            if let Some(metadata) = metadata_opt {
+                // Delete all version files
+                for version_meta in &metadata.versions {
+                    let data_path = Self::version_path(&key, &version_meta.version, "data.json");
+                    let _ = self.store.delete(&data_path).await;
+                    let schema_path =
+                        Self::version_path(&key, &version_meta.version, "schema.json");
+                    let _ = self.store.delete(&schema_path).await;
                 }
-                _ => {}
+
+                // Delete metadata
+                let metadata_path = Self::config_path(&key, "metadata.json");
+                let _ = self.store.delete(&metadata_path).await;
+
+                deleted_count += 1;
             }
         }
 
@@ -202,7 +198,7 @@ impl ConfigStorage for ObjectStoreBackend {
     }
 
     async fn exists(&self, key: &ConfigKey) -> Result<bool> {
-        let path = self.config_path(key, "metadata.json");
+        let path = Self::config_path(key, "metadata.json");
         match self.store.head(&path).await {
             Ok(_) => Ok(true),
             Err(object_store::Error::NotFound { .. }) => Ok(false),

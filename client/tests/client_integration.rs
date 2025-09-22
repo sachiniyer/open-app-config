@@ -1,12 +1,10 @@
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
-
 use client::ConfigClient;
 use mockito::{self, Matcher};
 use serde_json::json;
 use shared_types::ConfigKey;
 
 #[tokio::test]
-async fn test_health_check() {
+async fn test_health_check() -> anyhow::Result<()> {
     let mut server = mockito::Server::new_async().await;
 
     let _m = server
@@ -15,13 +13,14 @@ async fn test_health_check() {
         .with_body(r#"{"status":"healthy"}"#)
         .create();
 
-    let client = ConfigClient::new(server.url()).unwrap();
-    let healthy = client.health_check().await.unwrap();
+    let client = ConfigClient::new(server.url())?;
+    let healthy = client.health_check().await?;
     assert!(healthy);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_get_config() {
+async fn test_get_config() -> anyhow::Result<()> {
     let mut server = mockito::Server::new_async().await;
 
     let response_body = r#"{
@@ -39,17 +38,18 @@ async fn test_get_config() {
         .with_body(response_body)
         .create();
 
-    let client = ConfigClient::new(server.url()).unwrap();
+    let client = ConfigClient::new(server.url())?;
     let key = ConfigKey::new("myapp", "dev", "database");
-    let config = client.get_config(&key).await.unwrap();
+    let config = client.get_config(&key).await?;
 
     assert_eq!(config.version, "v1");
     assert_eq!(config.content["host"], "localhost");
     assert_eq!(config.content["port"], 5432);
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_get_config_not_found() {
+async fn test_get_config_not_found() -> anyhow::Result<()> {
     let mut server = mockito::Server::new_async().await;
 
     let _m = server
@@ -57,16 +57,18 @@ async fn test_get_config_not_found() {
         .with_status(404)
         .create();
 
-    let client = ConfigClient::new(server.url()).unwrap();
+    let client = ConfigClient::new(server.url())?;
     let key = ConfigKey::new("myapp", "dev", "missing");
     let result = client.get_config(&key).await;
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("not found"));
+    let err_msg = result.err().ok_or(anyhow::anyhow!("expected error"))?.to_string();
+    assert!(err_msg.contains("not found"));
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_put_config() {
+async fn test_put_config() -> anyhow::Result<()> {
     let mut server = mockito::Server::new_async().await;
 
     let _m = server
@@ -81,20 +83,20 @@ async fn test_put_config() {
         .with_body(r#"{"message": "Success", "version": "v1"}"#)
         .create();
 
-    let client = ConfigClient::new(server.url()).unwrap();
+    let client = ConfigClient::new(server.url())?;
     let key = ConfigKey::new("myapp", "dev", "api");
     let content = json!({"url": "https://api.example.com"});
     let schema = json!({"type": "object"});
 
     let version = client
         .put_config(&key, content, Some(schema), None)
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(version, "v1");
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_delete_environment() {
+async fn test_delete_environment() -> anyhow::Result<()> {
     let mut server = mockito::Server::new_async().await;
 
     let _m = server
@@ -103,13 +105,14 @@ async fn test_delete_environment() {
         .with_body(r#"{"message": "Deleted 3 configurations"}"#)
         .create();
 
-    let client = ConfigClient::new(server.url()).unwrap();
+    let client = ConfigClient::new(server.url())?;
 
-    client.delete_environment("myapp", "dev").await.unwrap();
+    client.delete_environment("myapp", "dev").await?;
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_list_versions() {
+async fn test_list_versions() -> anyhow::Result<()> {
     let mut server = mockito::Server::new_async().await;
 
     let response_body = r#"{
@@ -125,11 +128,12 @@ async fn test_list_versions() {
         .with_body(response_body)
         .create();
 
-    let client = ConfigClient::new(server.url()).unwrap();
+    let client = ConfigClient::new(server.url())?;
     let key = ConfigKey::new("myapp", "dev", "config");
-    let versions = client.list_versions(&key).await.unwrap();
+    let versions = client.list_versions(&key).await?;
 
     assert_eq!(versions.len(), 2);
     assert_eq!(versions[0].version, "v1");
     assert_eq!(versions[1].version, "v2");
+    Ok(())
 }

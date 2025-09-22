@@ -15,9 +15,9 @@ missing_docs = "allow"  # We can enable this later when we add documentation
 rust_2018_idioms = { level = "deny", priority = -1 }
 rust_2024_compatibility = { level = "warn", priority = -1 }
 
-# All warnings as errors in CI (but allow dead_code for now due to stubs)
+# All warnings as errors
 warnings = "deny"
-dead_code = "warn"  # Temporary until we implement all handlers
+dead_code = "deny"
 
 [workspace.lints.clippy]
 # Enable all default clippy lints
