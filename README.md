@@ -20,4 +20,3 @@ The core feature set:
 1. AWS AppConfig
 2. Azure Application Configuration
 3. Kubernetes ConfigMap
-4. etcd (kinda)
