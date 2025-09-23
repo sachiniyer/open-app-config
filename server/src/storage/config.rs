@@ -68,9 +68,7 @@ impl StorageConfig {
                     allow_http,
                 ))
             }
-            _ => anyhow::bail!(
-                "Unknown storage backend: {backend}. Must be 'local' or 's3'"
-            ),
+            _ => anyhow::bail!("Unknown storage backend: {backend}. Must be 'local' or 's3'"),
         }
     }
 }
